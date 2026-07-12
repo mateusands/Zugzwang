@@ -108,6 +108,41 @@ export class ChessEngine {
     return this.#chess.isCheck();
   }
 
+  /** Whether the side to move is checkmated. */
+  isCheckmate(): boolean {
+    return this.#chess.isCheckmate();
+  }
+
+  /** Whether the side to move is stalemated (no legal move and not in check). */
+  isStalemate(): boolean {
+    return this.#chess.isStalemate();
+  }
+
+  /** Whether the position is a draw (stalemate, insufficient material, etc.). */
+  isDraw(): boolean {
+    return this.#chess.isDraw();
+  }
+
+  /** Whether there is insufficient material for either side to checkmate. */
+  isInsufficientMaterial(): boolean {
+    return this.#chess.isInsufficientMaterial();
+  }
+
+  /** Whether the current position has occurred three times (draw). */
+  isThreefoldRepetition(): boolean {
+    return this.#chess.isThreefoldRepetition();
+  }
+
+  /**
+   * Winner of the game, or `null` when there is none (game still running, or
+   * drawn). A game is only won by checkmate.
+   */
+  winner(): PlayerColor | null {
+    if (!this.#chess.isCheckmate()) return null;
+    // The side to move is the one that got checkmated, so the other side won.
+    return this.turn === 'white' ? 'black' : 'white';
+  }
+
   /** Legal moves in the current position, in Standard Algebraic Notation. */
   legalMoves(): string[] {
     return this.#chess.moves();
