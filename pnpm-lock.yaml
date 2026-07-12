@@ -57,6 +57,9 @@ importers:
 
   packages/server:
     dependencies:
+      '@zugzwang/engine':
+        specifier: workspace:*
+        version: link:../engine
       express:
         specifier: ^4.21.2
         version: 4.22.2
