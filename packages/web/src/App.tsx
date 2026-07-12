@@ -20,6 +20,7 @@ import {
   createGame,
   getGame,
   sendMove,
+  takeback,
   IllegalMoveError,
   type BotMove,
   type Difficulty,
@@ -256,6 +257,24 @@ export function App() {
     setResigned(true);
   }, [cancelDrag]);
 
+  const handleTakeback = useCallback(() => {
+    if (!game) return;
+    setSelected(null);
+    cancelDrag();
+    setAnnotations(EMPTY_ANNOTATIONS);
+    takeback(game.id)
+      .then((state) => {
+        setGame(state);
+        setBoard((prev) => ({
+          pieces: state.pieces,
+          animatedMove: null,
+          animationMs: PLAYER_SLIDE_MS,
+          seq: prev.seq + 1,
+        }));
+      })
+      .catch(() => setError('Falha ao desfazer.'));
+  }, [game, cancelDrag]);
+
   const handleSquarePointerDown = useCallback(
     (square: string, event: ReactPointerEvent) => {
       if (event.button !== 0) return; // botão direito é anotação (mouse handlers)
@@ -344,6 +363,13 @@ export function App() {
       ) : (
         <>
           <div className="controls">
+            <button
+              type="button"
+              onClick={handleTakeback}
+              disabled={!playable || game.history.length === 0}
+            >
+              Desfazer
+            </button>
             <button type="button" onClick={() => setConfirmResign(true)} disabled={over}>
               Desistir
             </button>

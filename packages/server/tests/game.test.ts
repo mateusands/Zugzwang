@@ -96,3 +96,38 @@ describe('POST /games/:id/move', () => {
     expect(response.status).toBe(404);
   });
 });
+
+describe('POST /games/:id/takeback', () => {
+  it('recua o par de lances (jogador + bot), voltando à posição anterior', async () => {
+    const app = createApp();
+    const { body: game } = await createGame(app, 'easy');
+    // Um lance do jogador + a resposta do bot → dois plies no histórico.
+    await request(app).post(`/games/${game.id}/move`).send({ move: 'e4' });
+
+    const response = await request(app).post(`/games/${game.id}/takeback`);
+
+    // Desfaz o par: volta à posição inicial, vez das brancas.
+    expect(response.status).toBe(200);
+    expect(response.body.turn).toBe('white');
+    expect(response.body.history).toEqual([]);
+    expect(response.body.pieces).toHaveLength(32);
+  });
+
+  it('sem lances jogados, o takeback é um no-op', async () => {
+    const app = createApp();
+    const { body: game } = await createGame(app);
+
+    const response = await request(app).post(`/games/${game.id}/takeback`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.history).toEqual([]);
+  });
+
+  it('responde 404 em partida inexistente', async () => {
+    const app = createApp();
+
+    const response = await request(app).post('/games/nao-existe/takeback');
+
+    expect(response.status).toBe(404);
+  });
+});
