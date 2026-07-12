@@ -10,3 +10,5 @@ export {
   type MoveInput,
   type MoveResult,
 } from './engine.js';
+
+export { evaluate } from './bot.js';
