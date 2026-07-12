@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   applyLocalMove,
   glyph,
+  isCaptureTarget,
   isLightSquare,
   orderedSquares,
   pieceMap,
@@ -38,6 +39,15 @@ describe('helpers do tabuleiro', () => {
     expect(slideOffset('a1', 'h1')).toEqual({ dx: -7, dy: 0 });
   });
 
+  it('distingue casa de captura (ocupada) de casa vazia', () => {
+    const pieces = [{ square: 'd5', type: 'p', color: 'black' as const }];
+
+    // Destino ocupado por peça adversária → captura (anel).
+    expect(isCaptureTarget('d5', pieces)).toBe(true);
+    // Destino vazio → lance simples (bolinha).
+    expect(isCaptureTarget('e4', pieces)).toBe(false);
+  });
+
   it('aplica o lance localmente para o render otimista', () => {
     const pieces = [
       { square: 'e2', type: 'p', color: 'white' as const },
@@ -55,5 +65,34 @@ describe('helpers do tabuleiro', () => {
     const afterCapture = applyLocalMove(pieces, 'e2', 'd3');
     expect(afterCapture).toHaveLength(1);
     expect(afterCapture[0]).toEqual({ square: 'd3', type: 'p', color: 'white' });
+  });
+
+  it('no roque, move também a torre (otimista)', () => {
+    const pieces = [
+      { square: 'e1', type: 'k', color: 'white' as const },
+      { square: 'h1', type: 'r', color: 'white' as const },
+      { square: 'a1', type: 'r', color: 'white' as const },
+    ];
+
+    // Roque pequeno: rei e1→g1, torre h1→f1.
+    const kingside = applyLocalMove(pieces, 'e1', 'g1');
+    expect(kingside).toContainEqual({ square: 'g1', type: 'k', color: 'white' });
+    expect(kingside).toContainEqual({ square: 'f1', type: 'r', color: 'white' });
+
+    // Roque grande: rei e1→c1, torre a1→d1.
+    const queenside = applyLocalMove(pieces, 'e1', 'c1');
+    expect(queenside).toContainEqual({ square: 'c1', type: 'k', color: 'white' });
+    expect(queenside).toContainEqual({ square: 'd1', type: 'r', color: 'white' });
+  });
+
+  it('no en passant, remove o peão capturado ao lado (otimista)', () => {
+    const pieces = [
+      { square: 'e5', type: 'p', color: 'white' as const },
+      { square: 'f5', type: 'p', color: 'black' as const },
+    ];
+
+    // e5 captura en passant em f6: o peão preto de f5 sai do tabuleiro.
+    const after = applyLocalMove(pieces, 'e5', 'f6');
+    expect(after).toEqual([{ square: 'f6', type: 'p', color: 'white' }]);
   });
 });
