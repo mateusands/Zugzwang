@@ -30,6 +30,11 @@ export function glyph(piece: Piece): string {
   return GLYPHS[piece.type] ?? '?';
 }
 
+/** Whether a legal target square is a capture (occupied by a piece). */
+export function isCaptureTarget(square: string, pieces: Piece[]): boolean {
+  return pieces.some((piece) => piece.square === square);
+}
+
 /** Whether a square is light (used for the checkerboard colouring). */
 export function isLightSquare(square: string): boolean {
   const file = FILES.indexOf(square[0] as (typeof FILES)[number]);
@@ -55,13 +60,34 @@ export function slideOffset(from: string, to: string): { dx: number; dy: number 
 }
 
 /**
- * Apply a simple move to the piece list locally, for an optimistic render
- * (show the player's move immediately, before the server responds). Moves the
- * piece from `from` to `to`, removing any piece captured on `to`. Special moves
- * (roque, en passant, promoção) are corrected by the authoritative server state.
+ * Apply a move to the piece list locally, for an optimistic render (show the
+ * player's move immediately, before the server responds). Handles captures,
+ * castling (also moves the rook) and en passant (removes the bypassed pawn).
+ * Promotion keeps the pawn glyph until the authoritative server state lands.
  */
 export function applyLocalMove(pieces: Piece[], from: string, to: string): Piece[] {
-  return pieces
+  const mover = pieces.find((piece) => piece.square === from);
+  let result = pieces
     .filter((piece) => piece.square !== to)
     .map((piece) => (piece.square === from ? { ...piece, square: to } : piece));
+
+  // Roque: rei andando duas colunas leva a torre junto (h→f ou a→d).
+  if (mover?.type === 'k' && Math.abs(fileIndex(to) - fileIndex(from)) === 2) {
+    const rank = from[1];
+    const kingside = fileIndex(to) > fileIndex(from);
+    const rookFrom = `${kingside ? 'h' : 'a'}${rank}`;
+    const rookTo = `${kingside ? 'f' : 'd'}${rank}`;
+    result = result.map((piece) =>
+      piece.square === rookFrom ? { ...piece, square: rookTo } : piece,
+    );
+  }
+
+  // En passant: peão em diagonal para casa vazia captura o peão ao lado.
+  const wasEnPassant =
+    mover?.type === 'p' && from[0] !== to[0] && !pieces.some((piece) => piece.square === to);
+  if (wasEnPassant) {
+    result = result.filter((piece) => piece.square !== `${to[0]}${from[1]}`);
+  }
+
+  return result;
 }

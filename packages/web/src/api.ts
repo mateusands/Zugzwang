@@ -55,6 +55,12 @@ export async function createGame(difficulty: Difficulty): Promise<GameState> {
   return response.json() as Promise<GameState>;
 }
 
+export async function getGame(id: string): Promise<GameState> {
+  const response = await fetch(`${API}/games/${id}`);
+  if (!response.ok) throw new Error('Partida não encontrada.');
+  return response.json() as Promise<GameState>;
+}
+
 export async function sendMove(id: string, move: CoordinateMove): Promise<MoveResponse> {
   const response = await fetch(`${API}/games/${id}/move`, {
     method: 'POST',
