@@ -193,11 +193,88 @@ export function evaluate(engine: ChessEngine): number {
 /** Score assigned to checkmate — larger than any material imbalance. */
 const MATE_SCORE = 1_000_000;
 
+/** Search priority of a move, inferred from its SAN, for move ordering. */
+function movePriority(san: string): number {
+  if (san.includes('#')) return 4; // mate
+  if (san.includes('=')) return 3; // promotion
+  if (san.includes('x')) return 2; // capture
+  if (san.includes('+')) return 1; // check
+  return 0; // quiet
+}
+
+/**
+ * Order moves so the most forcing ones (mate, promotion, capture, check) are
+ * searched first. Better ordering makes alpha-beta prune more. Pure — returns
+ * a new array and never drops or duplicates moves.
+ */
+export function orderMoves(sans: string[]): string[] {
+  return [...sans].sort((a, b) => movePriority(b) - movePriority(a));
+}
+
+/** Piece count at or below which the endgame warrants a deeper search. */
+const ENDGAME_PIECE_COUNT = 10;
+
+/**
+ * Effective search depth: search one ply deeper once the board thins out into
+ * an endgame, where positions are sharper and cheaper to search.
+ */
+export function adaptiveDepth(pieceCount: number, baseDepth: number): number {
+  return pieceCount <= ENDGAME_PIECE_COUNT ? baseDepth + 1 : baseDepth;
+}
+
+/** Whether a cached score is exact or only a bound (for alpha-beta reuse). */
+export type TtFlag = 'EXACT' | 'LOWER' | 'UPPER';
+
+export interface TtEntry {
+  depth: number;
+  score: number;
+  flag: TtFlag;
+}
+
+/**
+ * Transposition table: caches search results by position (FEN) so positions
+ * reached by different move orders are not searched twice. Keeps the entry
+ * searched to the greater depth.
+ */
+export class TranspositionTable {
+  readonly #entries = new Map<string, TtEntry>();
+
+  get(key: string): TtEntry | undefined {
+    return this.#entries.get(key);
+  }
+
+  set(key: string, depth: number, score: number, flag: TtFlag): void {
+    const existing = this.#entries.get(key);
+    if (!existing || depth >= existing.depth) {
+      this.#entries.set(key, { depth, score, flag });
+    }
+  }
+}
+
 /**
  * Minimax score of the position, from White's point of view, searching
- * `depth` plies with alpha-beta pruning. White maximizes, Black minimizes.
+ * `depth` plies with alpha-beta pruning, move ordering and a transposition
+ * table. White maximizes, Black minimizes.
  */
-function search(engine: ChessEngine, depth: number, alpha: number, beta: number): number {
+function search(
+  engine: ChessEngine,
+  depth: number,
+  alpha: number,
+  beta: number,
+  tt: TranspositionTable,
+): number {
+  const alphaOrigin = alpha;
+  const betaOrigin = beta;
+  const key = engine.fen;
+
+  const cached = tt.get(key);
+  if (cached && cached.depth >= depth) {
+    if (cached.flag === 'EXACT') return cached.score;
+    if (cached.flag === 'LOWER') alpha = Math.max(alpha, cached.score);
+    else beta = Math.min(beta, cached.score);
+    if (alpha >= beta) return cached.score;
+  }
+
   if (engine.isCheckmate()) {
     // The side to move is mated. A faster mate (more depth left) scores higher.
     const mate = MATE_SCORE + depth;
@@ -209,10 +286,10 @@ function search(engine: ChessEngine, depth: number, alpha: number, beta: number)
   const maximizing = engine.turn === 'white';
   let best = maximizing ? -Infinity : Infinity;
 
-  for (const san of engine.legalMoves()) {
+  for (const san of orderMoves(engine.legalMoves())) {
     const child = new ChessEngine(engine.fen);
     child.move(san);
-    const score = search(child, depth - 1, alpha, beta);
+    const score = search(child, depth - 1, alpha, beta, tt);
 
     if (maximizing) {
       best = Math.max(best, score);
@@ -224,31 +301,37 @@ function search(engine: ChessEngine, depth: number, alpha: number, beta: number)
     if (alpha >= beta) break; // opponent already has a better option elsewhere
   }
 
+  const flag: TtFlag = best <= alphaOrigin ? 'UPPER' : best >= betaOrigin ? 'LOWER' : 'EXACT';
+  tt.set(key, depth, best, flag);
   return best;
 }
 
 /**
- * Choose the best move for the side to move, searching `depth` plies ahead.
+ * Choose the best move for the side to move. Searches `depth` plies ahead
+ * (deeper in the endgame, see {@link adaptiveDepth}) with alpha-beta pruning,
+ * move ordering and a transposition table.
  *
  * Does not mutate `engine` — every candidate is tried on a clone.
  *
- * @param depth Number of plies to search (>= 1).
+ * @param depth Base number of plies to search (>= 1).
  * @returns The chosen move, or `null` when the game is already over.
  * @throws {RangeError} If `depth` is smaller than 1.
  */
 export function findBestMove(engine: ChessEngine, depth: number): MoveResult | null {
   if (depth < 1) throw new RangeError('depth must be at least 1');
 
+  const effectiveDepth = adaptiveDepth(engine.pieces().length, depth);
+  const tt = new TranspositionTable();
   const maximizing = engine.turn === 'white';
   let bestMove: MoveResult | null = null;
   let bestScore = maximizing ? -Infinity : Infinity;
   let alpha = -Infinity;
   let beta = Infinity;
 
-  for (const san of engine.legalMoves()) {
+  for (const san of orderMoves(engine.legalMoves())) {
     const child = new ChessEngine(engine.fen);
     const move = child.move(san);
-    const score = search(child, depth - 1, alpha, beta);
+    const score = search(child, effectiveDepth - 1, alpha, beta, tt);
 
     if (maximizing ? score > bestScore : score < bestScore) {
       bestScore = score;
