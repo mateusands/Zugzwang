@@ -18,6 +18,16 @@ export type CastleSide = 'kingside' | 'queenside';
 
 export type GameStatus = 'in_progress' | 'check' | 'checkmate' | 'stalemate' | 'draw';
 
+/** A piece and the square it occupies. */
+export interface PlacedPiece {
+  /** Square the piece stands on, e.g. `'e4'`. */
+  square: string;
+  /** Type of the piece. */
+  type: PieceType;
+  /** Colour of the piece. */
+  color: PlayerColor;
+}
+
 /** A move expressed in coordinate form, e.g. `{ from: 'e2', to: 'e4' }`. */
 export interface MoveInput {
   from: string;
@@ -151,6 +161,19 @@ export class ChessEngine {
   /** Legal moves for the piece on `square`, in Standard Algebraic Notation. */
   movesFrom(square: string): string[] {
     return this.#chess.moves({ square: square as Square });
+  }
+
+  /** Every piece currently on the board, with its square and colour. */
+  pieces(): PlacedPiece[] {
+    const placed: PlacedPiece[] = [];
+    for (const row of this.#chess.board()) {
+      for (const cell of row) {
+        if (cell) {
+          placed.push({ square: cell.square, type: cell.type, color: toPlayerColor(cell.color) });
+        }
+      }
+    }
+    return placed;
   }
 
   /**
