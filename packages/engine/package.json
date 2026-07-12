@@ -15,6 +15,7 @@
   "scripts": {
     "dev": "tsc --watch",
     "build": "tsc",
+    "play": "tsx scripts/play.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
@@ -23,6 +24,8 @@
     "chess.js": "^1.4.0"
   },
   "devDependencies": {
+    "@types/node": "^22.10.7",
+    "tsx": "^4.19.2",
     "typescript": "^5.7.3",
     "vitest": "^3.0.5"
   }
