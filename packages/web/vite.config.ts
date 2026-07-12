@@ -5,5 +5,13 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
+    // Encaminha /api/* para o server Express (evita CORS em dev).
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api/, ''),
+      },
+    },
   },
 });

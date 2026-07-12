@@ -34,11 +34,11 @@ convenções de commit/branch/PR e evolução incremental documentada.
 
 ## Stack
 
-| Pacote             | Tecnologia                   | Papel                                        |
-| ------------------ | ---------------------------- | -------------------------------------------- |
-| `@zugzwang/engine` | TypeScript, chess.js, Vitest | Regras do xadrez e (futuro) lógica do bot    |
-| `@zugzwang/server` | TypeScript, Express          | API HTTP (hoje: health check)                |
-| `@zugzwang/web`    | TypeScript, React, Vite      | Cliente web (hoje: placeholder de tabuleiro) |
+| Pacote             | Tecnologia                   | Papel                                      |
+| ------------------ | ---------------------------- | ------------------------------------------ |
+| `@zugzwang/engine` | TypeScript, chess.js, Vitest | Regras do xadrez e (futuro) lógica do bot  |
+| `@zugzwang/server` | TypeScript, Express          | API HTTP (hoje: health check)              |
+| `@zugzwang/web`    | TypeScript, React, Vite      | Tabuleiro clicável para jogar contra o bot |
 
 Ferramentas transversais: **pnpm workspaces**, **ESLint**, **Prettier**.
 
@@ -57,13 +57,24 @@ cd Zugzwang
 pnpm install
 ```
 
-### Executando
+### Jogar contra o bot
+
+**No navegador** (web + server juntos):
 
 ```bash
-# Tudo em paralelo (modo watch)
 pnpm dev
+# abra http://localhost:5173 e jogue clicando nas peças
+```
 
-# Ou cada pacote isoladamente:
+**No terminal** (sem navegador):
+
+```bash
+pnpm --filter @zugzwang/engine play
+```
+
+### Executando (por pacote)
+
+```bash
 pnpm --filter @zugzwang/web dev       # cliente Vite em http://localhost:5173
 pnpm --filter @zugzwang/server dev    # API em http://localhost:3000
 pnpm --filter @zugzwang/engine test   # testes do engine
