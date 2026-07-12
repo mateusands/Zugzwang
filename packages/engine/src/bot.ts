@@ -1,4 +1,10 @@
-import { ChessEngine, type MoveResult, type PieceType, type PlayerColor } from './engine.js';
+import {
+  ChessEngine,
+  type MoveResult,
+  type PieceType,
+  type PlacedPiece,
+  type PlayerColor,
+} from './engine.js';
 
 /**
  * Bot do Zugzwang — avaliação estática e escolha de lance.
@@ -97,19 +103,90 @@ function tableIndex(square: string, color: PlayerColor): number {
   return color === 'white' ? (8 - rank) * 8 + file : (rank - 1) * 8 + file;
 }
 
+const CENTER_SQUARES = new Set(['d4', 'e4', 'd5', 'e5']);
+const CENTER_OCCUPATION_BONUS = 20;
+const DOUBLED_PAWN_PENALTY = 20;
+const ISOLATED_PAWN_PENALTY = 15;
+const KING_SHIELD_BONUS = 12;
+
+function fileOf(square: string): number {
+  return square.charCodeAt(0) - 'a'.charCodeAt(0);
+}
+
+function rankOf(square: string): number {
+  return Number(square[1]);
+}
+
+/**
+ * Positional bonus for `color`, beyond material and piece-square tables:
+ * center occupation, pawn structure (doubled/isolated) and king safety
+ * (pawn shield). Symmetric by construction, so it cancels out in a mirrored
+ * position.
+ */
+function positionalBonus(pieces: PlacedPiece[], color: PlayerColor): number {
+  const own = pieces.filter((piece) => piece.color === color);
+  let bonus = 0;
+
+  // Center occupation.
+  for (const piece of own) {
+    if (CENTER_SQUARES.has(piece.square)) bonus += CENTER_OCCUPATION_BONUS;
+  }
+
+  // Pawn structure: doubled and isolated pawns, counted per file.
+  const pawnsPerFile = new Map<number, number>();
+  for (const piece of own) {
+    if (piece.type === 'p') {
+      const file = fileOf(piece.square);
+      pawnsPerFile.set(file, (pawnsPerFile.get(file) ?? 0) + 1);
+    }
+  }
+  for (const [file, count] of pawnsPerFile) {
+    if (count > 1) bonus -= DOUBLED_PAWN_PENALTY * (count - 1);
+    const hasNeighbour = pawnsPerFile.has(file - 1) || pawnsPerFile.has(file + 1);
+    if (!hasNeighbour) bonus -= ISOLATED_PAWN_PENALTY * count;
+  }
+
+  // King safety: friendly pawns on the squares immediately around the king.
+  const king = own.find((piece) => piece.type === 'k');
+  if (king) {
+    const ownPawns = new Set(own.filter((p) => p.type === 'p').map((p) => p.square));
+    const kingFile = fileOf(king.square);
+    const kingRank = rankOf(king.square);
+    for (let df = -1; df <= 1; df++) {
+      for (let dr = -1; dr <= 1; dr++) {
+        if (df === 0 && dr === 0) continue;
+        const file = kingFile + df;
+        const rank = kingRank + dr;
+        if (file < 0 || file > 7 || rank < 1 || rank > 8) continue;
+        const square = String.fromCharCode('a'.charCodeAt(0) + file) + rank;
+        if (ownPawns.has(square)) bonus += KING_SHIELD_BONUS;
+      }
+    }
+  }
+
+  return bonus;
+}
+
 /**
  * Static evaluation of the position, in centipawns, from White's point of
- * view: positive favours White, negative favours Black. Does not look ahead —
- * terminal positions (checkmate/draw) are handled by the search.
+ * view: positive favours White, negative favours Black. Combines material,
+ * piece-square tables and positional terms (center, pawn structure, king
+ * safety). Does not look ahead — terminal positions (checkmate/draw) are
+ * handled by the search.
  */
 export function evaluate(engine: ChessEngine): number {
+  const pieces = engine.pieces();
   let score = 0;
-  for (const piece of engine.pieces()) {
+
+  for (const piece of pieces) {
     const table = PIECE_SQUARE_TABLES[piece.type];
     const positional = table[tableIndex(piece.square, piece.color)] ?? 0;
     const value = PIECE_VALUES[piece.type] + positional;
     score += piece.color === 'white' ? value : -value;
   }
+
+  score += positionalBonus(pieces, 'white');
+  score -= positionalBonus(pieces, 'black');
   return score;
 }
 
