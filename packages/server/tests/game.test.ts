@@ -97,6 +97,45 @@ describe('POST /games/:id/move', () => {
   });
 });
 
+describe('histórico de posições e PGN no estado da partida (Fase 8)', () => {
+  it('uma partida recém-criada expõe o PGN e a posição inicial em fens', async () => {
+    const app = createApp();
+
+    const { body: game } = await createGame(app);
+
+    // Dado/Então: sem lances, fens tem só a posição inicial e o PGN é string.
+    expect(game.fens).toEqual([game.fen]);
+    expect(typeof game.pgn).toBe('string');
+  });
+
+  it('após um lance e a resposta do bot, fens acompanha o histórico', async () => {
+    const app = createApp();
+    const { body: game } = await createGame(app, 'easy');
+
+    // Quando o jogador move e o bot responde
+    const response = await request(app).post(`/games/${game.id}/move`).send({ move: 'e4' });
+
+    // Então fens tem uma posição por ply + a inicial, terminando na atual.
+    const { fens, history, fen, pgn } = response.body;
+    expect(fens).toHaveLength(history.length + 1);
+    expect(fens[0]).toBe(game.fen);
+    expect(fens[fens.length - 1]).toBe(fen);
+    // E o PGN contém o lance jogado.
+    expect(pgn).toContain('e4');
+  });
+
+  it('o takeback encolhe fens junto com o histórico', async () => {
+    const app = createApp();
+    const { body: game } = await createGame(app, 'easy');
+    await request(app).post(`/games/${game.id}/move`).send({ move: 'e4' });
+
+    const response = await request(app).post(`/games/${game.id}/takeback`);
+
+    // Então volta a ter só a posição inicial.
+    expect(response.body.fens).toEqual([game.fen]);
+  });
+});
+
 describe('POST /games/:id/takeback', () => {
   it('recua o par de lances (jogador + bot), voltando à posição anterior', async () => {
     const app = createApp();

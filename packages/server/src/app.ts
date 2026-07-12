@@ -27,6 +27,8 @@ function toState(id: string, engine: ChessEngine) {
     legalMoves: engine.legalMoves(),
     legalTargets: engine.legalTargets(),
     history: engine.history(),
+    fens: engine.fenHistory(),
+    pgn: engine.pgn(),
   };
 }
 
