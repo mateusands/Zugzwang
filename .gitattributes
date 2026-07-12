@@ -1,0 +1,16 @@
+# Normaliza fim de linha: LF no repositório e no working tree, em qualquer SO.
+# Combina com o .editorconfig (eol=lf) e o Prettier (endOfLine: lf).
+* text=auto eol=lf
+
+# Scripts de shell do Windows precisam de CRLF para funcionar corretamente.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Arquivos binários não devem sofrer conversão de fim de linha.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
