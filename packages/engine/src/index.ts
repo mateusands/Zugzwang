@@ -13,9 +13,12 @@ export {
 
 export {
   evaluate,
+  evaluatePosition,
   findBestMove,
   chooseMove,
   difficultyDepth,
+  analyzeGame,
   type Difficulty,
+  type MoveAnalysis,
 } from './bot.js';
 export { renderBoard } from './render.js';

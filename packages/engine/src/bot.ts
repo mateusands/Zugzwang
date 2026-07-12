@@ -369,3 +369,88 @@ export function findBestMove(engine: ChessEngine, depth: number): MoveResult | n
 export function chooseMove(engine: ChessEngine, difficulty: Difficulty): MoveResult | null {
   return findBestMove(engine, difficultyDepth(difficulty));
 }
+
+/**
+ * Minimax value of the position, from White's point of view, searching `depth`
+ * plies. At depth 0 this is the static {@link evaluate}. Does not mutate
+ * `engine`.
+ */
+export function evaluatePosition(engine: ChessEngine, depth: number): number {
+  if (depth < 0) throw new RangeError('depth must be at least 0');
+  return search(engine, depth, -Infinity, Infinity, new TranspositionTable());
+}
+
+/** Centipawn loss above which a move is flagged as a blunder. */
+const BLUNDER_THRESHOLD = 200;
+
+/** Per-move verdict produced by {@link analyzeGame}. */
+export interface MoveAnalysis {
+  /** Full-move number (1-based). */
+  moveNumber: number;
+  /** Side that played the move. */
+  color: PlayerColor;
+  /** The move played, in Standard Algebraic Notation. */
+  san: string;
+  /** The engine's preferred move in that position, in SAN. */
+  best: string;
+  /** Value after the played move, from White's point of view (centipawns). */
+  evaluation: number;
+  /** Centipawn loss versus the best move, from the mover's point of view. */
+  loss: number;
+  /** Whether the loss is large enough to count as a blunder. */
+  isBlunder: boolean;
+}
+
+/**
+ * Replay a game (PGN) and evaluate every move, flagging blunders by comparing
+ * each played move against the engine's best move at that position.
+ *
+ * @param depth Base search depth for the comparison (default 2).
+ */
+export function analyzeGame(pgn: string, depth = 2): MoveAnalysis[] {
+  const source = new ChessEngine();
+  source.loadPgn(pgn);
+  const playedMoves = source.history();
+  const childDepth = Math.max(0, depth - 1);
+
+  const replay = new ChessEngine();
+  const analyses: MoveAnalysis[] = [];
+
+  playedMoves.forEach((played, ply) => {
+    const mover = replay.turn;
+    const sign = mover === 'white' ? 1 : -1;
+
+    // Best achievable value for the mover among all legal moves.
+    let bestSan = played;
+    let bestValue = -Infinity;
+    for (const san of replay.legalMoves()) {
+      const child = new ChessEngine(replay.fen);
+      child.move(san);
+      const value = sign * evaluatePosition(child, childDepth);
+      if (value > bestValue) {
+        bestValue = value;
+        bestSan = san;
+      }
+    }
+
+    // Value actually reached by the move that was played.
+    const afterPlayed = new ChessEngine(replay.fen);
+    afterPlayed.move(played);
+    const evaluation = evaluatePosition(afterPlayed, childDepth);
+    const loss = Math.max(0, bestValue - sign * evaluation);
+
+    analyses.push({
+      moveNumber: Math.floor(ply / 2) + 1,
+      color: mover,
+      san: played,
+      best: bestSan,
+      evaluation,
+      loss,
+      isBlunder: loss >= BLUNDER_THRESHOLD,
+    });
+
+    replay.move(played);
+  });
+
+  return analyses;
+}
