@@ -163,6 +163,19 @@ export class ChessEngine {
     return this.#chess.moves({ square: square as Square });
   }
 
+  /**
+   * Legal destination squares grouped by origin square, for the side to move.
+   * e.g. `{ e2: ['e3', 'e4'], b1: ['a3', 'c3'], ... }`. Useful for a clickable
+   * board. Empty object when the game is over.
+   */
+  legalTargets(): Record<string, string[]> {
+    const targets: Record<string, string[]> = {};
+    for (const move of this.#chess.moves({ verbose: true })) {
+      (targets[move.from] ??= []).push(move.to);
+    }
+    return targets;
+  }
+
   /** Every piece currently on the board, with its square and colour. */
   pieces(): PlacedPiece[] {
     const placed: PlacedPiece[] = [];
