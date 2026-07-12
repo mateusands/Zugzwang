@@ -1,8 +1,24 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import { BoardView, type AnimatedMove } from './BoardView.js';
-import { applyLocalMove } from './board.js';
+import { applyLocalMove, glyph } from './board.js';
+import {
+  EMPTY_ANNOTATIONS,
+  toggleArrow,
+  toggleHighlight,
+  type Annotations,
+} from './annotations.js';
+import { pickSound, playSound } from './sounds.js';
+import { gameOutcome } from './outcome.js';
+import { capturedPieces } from './material.js';
+import { usePieceDrag } from './usePieceDrag.js';
+import { CapturedRow } from './components/CapturedRow.js';
+import { PromotionPicker } from './components/PromotionPicker.js';
+import { ConfirmDialog } from './components/ConfirmDialog.js';
+import { EndScreen } from './components/EndScreen.js';
 import {
   createGame,
+  getGame,
   sendMove,
   IllegalMoveError,
   type BotMove,
@@ -13,6 +29,7 @@ import {
 } from './api.js';
 
 const DIFFICULTIES: Difficulty[] = ['easy', 'medium', 'hard'];
+const STORAGE_KEY = 'zugzwang:game';
 
 /** Slide durations: o lance do jogador é rápido; o do bot, mais lento. */
 const PLAYER_SLIDE_MS = 220;
@@ -24,6 +41,12 @@ interface BoardState {
   animatedMove: AnimatedMove | null;
   animationMs: number;
   seq: number;
+}
+
+interface PendingPromotion {
+  from: string;
+  to: string;
+  isCapture: boolean;
 }
 
 function statusText(game: GameState): string {
@@ -54,13 +77,30 @@ export function App() {
   const [selected, setSelected] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showHints, setShowHints] = useState(true);
+  const [soundOn, setSoundOn] = useState(true);
+  const soundOnRef = useRef(soundOn);
+  useEffect(() => {
+    soundOnRef.current = soundOn;
+  }, [soundOn]);
+  const [resigned, setResigned] = useState(false);
+  const [confirmResign, setConfirmResign] = useState(false);
+  const [pendingPromotion, setPendingPromotion] = useState<PendingPromotion | null>(null);
+  const [restoring, setRestoring] = useState(true);
+  const [annotations, setAnnotations] = useState<Annotations>(EMPTY_ANNOTATIONS);
+  /** Caminho de casas percorrido com o botão direito pressionado. */
+  const rightPath = useRef<string[] | null>(null);
+  const boardRef = useRef<HTMLDivElement>(null);
 
   const startGame = useCallback(async (level: Difficulty) => {
     setError(null);
     setSelected(null);
+    setResigned(false);
+    setAnnotations(EMPTY_ANNOTATIONS);
     setGame(null);
     try {
       const state = await createGame(level);
+      setDifficulty(level);
       setGame(state);
       setBoard({ pieces: state.pieces, animatedMove: null, animationMs: PLAYER_SLIDE_MS, seq: 0 });
     } catch {
@@ -68,10 +108,45 @@ export function App() {
     }
   }, []);
 
+  // Restaura a partida em andamento ao recarregar a página.
   useEffect(() => {
-    void startGame(difficulty);
-    // Recomeça a partida quando a dificuldade muda.
-  }, [difficulty, startGame]);
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      setRestoring(false);
+      return;
+    }
+    let saved: { id: string; difficulty: Difficulty; resigned: boolean };
+    try {
+      saved = JSON.parse(raw) as typeof saved;
+    } catch {
+      setRestoring(false);
+      return;
+    }
+    getGame(saved.id)
+      .then((state) => {
+        setDifficulty(saved.difficulty);
+        setResigned(saved.resigned);
+        setGame(state);
+        setBoard({
+          pieces: state.pieces,
+          animatedMove: null,
+          animationMs: PLAYER_SLIDE_MS,
+          seq: 0,
+        });
+      })
+      .catch(() => localStorage.removeItem(STORAGE_KEY))
+      .finally(() => setRestoring(false));
+  }, []);
+
+  // Persiste a partida atual (id + dificuldade + desistência).
+  useEffect(() => {
+    if (restoring) return;
+    if (game) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ id: game.id, difficulty, resigned }));
+    } else {
+      localStorage.removeItem(STORAGE_KEY);
+    }
+  }, [game, difficulty, resigned, restoring]);
 
   const playMove = useCallback(
     (from: string, to: string, promotion: string | undefined) => {
@@ -98,12 +173,14 @@ export function App() {
             animationMs: BOT_SLIDE_MS,
             seq: prev.seq + 1,
           }));
+          if (soundOnRef.current) {
+            playSound(pickSound(response.status, bot?.san.includes('x') ?? false));
+          }
         })
         .catch((sendError: unknown) => {
           setError(
             sendError instanceof IllegalMoveError ? 'Lance ilegal.' : 'Falha ao enviar o lance.',
           );
-          // Desfaz o render otimista, voltando ao estado anterior do servidor.
           setBoard((prev) => ({
             pieces: game.pieces,
             animatedMove: null,
@@ -116,26 +193,121 @@ export function App() {
     [game],
   );
 
-  const handleSquareClick = useCallback(
-    (square: string) => {
-      if (!game || game.gameOver || busy || game.turn !== 'white') return;
-      const targets = game.legalTargets;
+  const commitMove = useCallback(
+    (from: string, to: string, promotion: string | undefined, isCapture: boolean) => {
+      // Som imediato do lance do jogador (o do bot vem com a resposta).
+      if (soundOnRef.current) playSound(pickSound('in_progress', isCapture));
+      playMove(from, to, promotion);
+    },
+    [playMove],
+  );
 
-      if (selected) {
-        if ((targets[selected] ?? []).includes(square)) {
-          const mover = game.pieces.find((piece) => piece.square === selected);
-          const promotion = mover?.type === 'p' && square[1] === '8' ? 'q' : undefined;
-          playMove(selected, square, promotion);
-          return;
-        }
-        setSelected(targets[square] ? square : null);
+  const attemptMove = useCallback(
+    (from: string, to: string) => {
+      if (!game || !(game.legalTargets[from] ?? []).includes(to)) return;
+      const mover = game.pieces.find((piece) => piece.square === from);
+      // Peão em diagonal para casa vazia só é legal como en passant — é captura.
+      const isCapture =
+        game.pieces.some((piece) => piece.square === to) ||
+        (mover?.type === 'p' && from[0] !== to[0]);
+      // Peão chegando na última fileira: pergunta para qual peça promover.
+      if (mover?.type === 'p' && to[1] === '8') {
+        setSelected(null);
+        setPendingPromotion({ from, to, isCapture });
+        return;
+      }
+      commitMove(from, to, undefined, isCapture);
+    },
+    [game, commitMove],
+  );
+
+  const promote = useCallback(
+    (type: string) => {
+      if (!pendingPromotion) return;
+      commitMove(pendingPromotion.from, pendingPromotion.to, type, pendingPromotion.isCapture);
+      setPendingPromotion(null);
+    },
+    [pendingPromotion, commitMove],
+  );
+
+  // Arraste: ao soltar, decide o lance (drop inválido devolve a peça).
+  const handleDrop = useCallback(
+    (from: string, to: string | null) => {
+      if (to && to !== from && game && (game.legalTargets[from] ?? []).includes(to)) {
+        attemptMove(from, to);
+        setSelected(null);
+      } else if (to !== from) {
+        setSelected(null); // drop inválido: a peça volta e desmarca
+      }
+      // to === from → mantém selecionado (vira clique-clique)
+    },
+    [game, attemptMove],
+  );
+
+  const { drag, pos: dragPos, beginDrag, cancelDrag } = usePieceDrag(boardRef, handleDrop);
+
+  const over = !!game && (game.gameOver || resigned);
+  const playable = !!game && !over && !busy && game.turn === 'white' && !pendingPromotion;
+
+  const resign = useCallback(() => {
+    setSelected(null);
+    cancelDrag();
+    setConfirmResign(false);
+    setResigned(true);
+  }, [cancelDrag]);
+
+  const handleSquarePointerDown = useCallback(
+    (square: string, event: ReactPointerEvent) => {
+      if (event.button !== 0) return; // botão direito é anotação (mouse handlers)
+      if (!playable || !game) return;
+
+      if (selected && (game.legalTargets[selected] ?? []).includes(square)) {
+        attemptMove(selected, square);
+        setSelected(null);
         return;
       }
 
-      if (targets[square]) setSelected(square);
+      const piece = game.pieces.find((current) => current.square === square);
+      if (piece && game.legalTargets[square]) {
+        setSelected(square);
+        beginDrag(square, piece, event);
+      } else {
+        setSelected(null);
+      }
     },
-    [game, selected, busy, playMove],
+    [game, selected, playable, attemptMove, beginDrag],
   );
+
+  // Anotações: botão direito desenha (seta seguindo o caminho do mouse, ou
+  // destaque ao clicar numa casa só); botão esquerdo limpa.
+  const handleSquareMouseDown = useCallback((square: string, button: number) => {
+    if (button === 2) {
+      rightPath.current = [square];
+    } else if (button === 0) {
+      setAnnotations(EMPTY_ANNOTATIONS);
+    }
+  }, []);
+
+  const handleSquareMouseEnter = useCallback((square: string) => {
+    const path = rightPath.current;
+    if (path && path[path.length - 1] !== square) path.push(square);
+  }, []);
+
+  const handleSquareMouseUp = useCallback((square: string, button: number) => {
+    if (button !== 2) return;
+    const path = rightPath.current;
+    rightPath.current = null;
+    if (!path) return;
+    if (path[path.length - 1] !== square) path.push(square);
+    setAnnotations((prev) =>
+      path.length === 1
+        ? { ...prev, highlights: toggleHighlight(prev.highlights, square) }
+        : { ...prev, arrows: toggleArrow(prev.arrows, path) },
+    );
+  }, []);
+
+  const outcome = game && over ? gameOutcome(game.status, game.winner, resigned) : null;
+  const captured = capturedPieces(board.pieces);
 
   return (
     <main className="app">
@@ -144,46 +316,133 @@ export function App() {
         <p className="app__tagline">Xadrez contra o bot — você joga de brancas.</p>
       </header>
 
-      <div className="controls">
-        <label>
-          Dificuldade{' '}
-          <select
-            value={difficulty}
-            onChange={(event) => setDifficulty(event.target.value as Difficulty)}
+      {restoring ? (
+        <p className="status">Carregando…</p>
+      ) : !game ? (
+        <div className="start">
+          <label>
+            Dificuldade{' '}
+            <select
+              value={difficulty}
+              onChange={(event) => setDifficulty(event.target.value as Difficulty)}
+            >
+              {DIFFICULTIES.map((level) => (
+                <option key={level} value={level}>
+                  {level}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            className="button--primary"
+            onClick={() => void startGame(difficulty)}
           >
-            {DIFFICULTIES.map((level) => (
-              <option key={level} value={level}>
-                {level}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button type="button" onClick={() => void startGame(difficulty)}>
-          Nova partida
-        </button>
-      </div>
-
-      {game ? (
+            Jogar
+          </button>
+        </div>
+      ) : (
         <>
-          <BoardView
-            pieces={board.pieces}
-            selected={selected}
-            targets={selected ? (game.legalTargets[selected] ?? []) : []}
-            onSquareClick={handleSquareClick}
-            animatedMove={board.animatedMove}
-            animationMs={board.animationMs}
-            moveSeq={board.seq}
+          <div className="controls">
+            <button type="button" onClick={() => setConfirmResign(true)} disabled={over}>
+              Desistir
+            </button>
+            <label className="controls__toggle">
+              <input
+                type="checkbox"
+                checked={showHints}
+                onChange={(event) => setShowHints(event.target.checked)}
+              />{' '}
+              Dicas
+            </label>
+            <label className="controls__toggle">
+              <input
+                type="checkbox"
+                checked={soundOn}
+                onChange={(event) => setSoundOn(event.target.checked)}
+              />{' '}
+              Som
+            </label>
+          </div>
+
+          <CapturedRow
+            pieces={captured.byBlack}
+            color="white"
+            lead={captured.advantage < 0 ? -captured.advantage : 0}
           />
-          <p className="status">{busy ? 'Bot pensando…' : statusText(game)}</p>
-          {botMoveOf(game) ? (
+
+          <div className="board-area">
+            <BoardView
+              boardRef={boardRef}
+              pieces={board.pieces}
+              selected={selected}
+              targets={selected ? (game.legalTargets[selected] ?? []) : []}
+              movable={playable ? Object.keys(game.legalTargets) : []}
+              onSquarePointerDown={handleSquarePointerDown}
+              onSquareMouseDown={handleSquareMouseDown}
+              onSquareMouseUp={handleSquareMouseUp}
+              onSquareMouseEnter={handleSquareMouseEnter}
+              highlights={annotations.highlights}
+              arrows={annotations.arrows}
+              dragFrom={drag?.from ?? null}
+              animatedMove={board.animatedMove}
+              animationMs={board.animationMs}
+              moveSeq={board.seq}
+              showHints={showHints}
+            />
+
+            {pendingPromotion ? (
+              <PromotionPicker onPick={promote} onCancel={() => setPendingPromotion(null)} />
+            ) : null}
+
+            {confirmResign ? (
+              <ConfirmDialog
+                text="Tem certeza de que deseja abandonar?"
+                confirmLabel="Desistir"
+                onConfirm={resign}
+                onCancel={() => setConfirmResign(false)}
+              />
+            ) : null}
+
+            {outcome ? (
+              <EndScreen
+                outcome={outcome}
+                onRematch={() => void startGame(difficulty)}
+                onNewBot={() => setGame(null)}
+              />
+            ) : null}
+          </div>
+
+          <CapturedRow
+            pieces={captured.byWhite}
+            color="black"
+            lead={captured.advantage > 0 ? captured.advantage : 0}
+          />
+
+          {!over ? <p className="status">{busy ? 'Bot pensando…' : statusText(game)}</p> : null}
+          {!over && botMoveOf(game) ? (
             <p className="status status--muted">Bot jogou: {botMoveOf(game)?.san}</p>
           ) : null}
         </>
-      ) : (
-        <p className="status">Carregando…</p>
       )}
 
       {error ? <p className="error">{error}</p> : null}
+
+      {drag && dragPos ? (
+        <div
+          className={`drag-piece piece--${drag.piece.color}`}
+          aria-hidden="true"
+          style={{
+            left: dragPos.x,
+            top: dragPos.y,
+            width: drag.cell,
+            height: drag.cell,
+            fontSize: drag.cell * 0.8,
+          }}
+        >
+          {glyph(drag.piece)}
+        </div>
+      ) : null}
     </main>
   );
 }

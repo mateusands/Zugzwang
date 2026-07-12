@@ -47,26 +47,235 @@ body {
   align-items: center;
 }
 
-.controls select,
-.controls button {
+/* Botões de UI (controles, telas e diálogos) — NUNCA as casas do tabuleiro,
+   que também são <button> (.square) e têm o próprio visual. */
+.controls button,
+.start button,
+.dialog button,
+.endscreen__actions button,
+.promotion__piece {
   font: inherit;
-  padding: 0.35rem 0.6rem;
-  border-radius: 6px;
-  border: 1px solid #3a3a40;
-  background: #2a2a2f;
-  color: #f5f5f5;
+  font-weight: 600;
+  padding: 0.5rem 1.1rem;
+  border-radius: 8px;
+  border: 1px solid #45454f;
+  background: #3a3a43;
+  color: #f0f0f2;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.05s ease;
+}
+
+.controls button:hover:not(:disabled),
+.start button:hover:not(:disabled),
+.dialog button:hover:not(:disabled),
+.endscreen__actions button:hover:not(:disabled),
+.promotion__piece:hover:not(:disabled) {
+  background: #474751;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.controls button:active:not(:disabled),
+.start button:active:not(:disabled),
+.dialog button:active:not(:disabled),
+.endscreen__actions button:active:not(:disabled),
+.promotion__piece:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+button:focus-visible {
+  outline: 2px solid #81b64c;
+  outline-offset: 2px;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+select {
+  font: inherit;
+  padding: 0.45rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid #45454f;
+  background: #3a3a43;
+  color: #f0f0f2;
   cursor: pointer;
 }
 
+.button--primary {
+  background: #81b64c;
+  border-color: #72a343;
+  color: #10240a;
+  font-weight: 700;
+}
+
+.button--primary:hover:not(:disabled) {
+  background: #8fc659;
+}
+
+.start {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.board-area {
+  position: relative;
+}
+
+/* Camada modal sobre o tabuleiro (fim de jogo, promoção, confirmação). */
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(10, 10, 12, 0.55);
+  z-index: 1100;
+}
+
+.button--danger {
+  background: #c0392b;
+  border-color: #a93226;
+  color: #fff;
+  font-weight: 700;
+}
+
+.button--danger:hover:not(:disabled) {
+  background: #d24435;
+}
+
+/* Escolha da peça de promoção. */
+.promotion {
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.6rem;
+  border-radius: 10px;
+  background: #26262b;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+.promotion__piece {
+  display: grid;
+  place-items: center;
+  width: 3.2rem;
+  height: 3.2rem;
+  padding: 0;
+  font-size: 2.2rem;
+}
+
+/* Diálogo de confirmação. */
+.dialog {
+  min-width: 260px;
+  padding: 1.4rem;
+  border-radius: 10px;
+  background: #26262b;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  text-align: center;
+}
+
+.dialog__text {
+  margin: 0 0 1.2rem;
+  font-size: 1.1rem;
+}
+
+.dialog__actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+}
+
+/* Peças capturadas por um lado (com a vantagem material). */
+.captured {
+  display: flex;
+  align-items: center;
+  gap: 0.05rem;
+  min-height: 1.6rem;
+  width: min(92vw, 560px);
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+.captured__piece {
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.4));
+}
+
+/* No fundo escuro da linha de capturadas, as peças pretas precisam de um
+   contorno claro para não sumirem (as brancas já têm contorno escuro). */
+.captured .piece--black {
+  color: #35353a;
+  text-shadow:
+    -1px -1px 0 #c2c2c8,
+    1px -1px 0 #c2c2c8,
+    -1px 1px 0 #c2c2c8,
+    1px 1px 0 #c2c2c8;
+}
+
+.captured__lead {
+  margin-left: 0.4rem;
+  font-size: 0.9rem;
+  color: #a0a0a8;
+}
+
+.endscreen__card {
+  min-width: 260px;
+  padding: 1.5rem;
+  border-radius: 10px;
+  background: #26262b;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  text-align: center;
+}
+
+.endscreen__title {
+  margin: 0 0 0.25rem;
+  font-size: 1.6rem;
+}
+
+.endscreen__title--win {
+  color: #9ede5a;
+}
+
+.endscreen__title--loss {
+  color: #ff8a80;
+}
+
+.endscreen__title--draw {
+  color: #e0c068;
+}
+
+.endscreen__reason {
+  margin: 0 0 1.25rem;
+  color: #a0a0a8;
+}
+
+.endscreen__actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+}
+
 .board {
+  position: relative;
   display: grid;
   grid-template-columns: repeat(8, 1fr);
   grid-template-rows: repeat(8, 1fr);
-  width: min(90vw, 480px);
+  width: min(92vw, 560px);
   aspect-ratio: 1 / 1;
   border: 4px solid #3a3a40;
   border-radius: 4px;
   overflow: hidden;
+}
+
+/* Camada de setas por cima das casas, sem bloquear cliques. */
+.arrows {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 3;
 }
 
 .square {
@@ -96,6 +305,14 @@ body {
   background: #f6eb72;
 }
 
+/* Casa pintada por anotação (botão direito). */
+.square--annotated::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 150, 0, 0.5);
+}
+
 .square--target::after {
   content: '';
   position: absolute;
@@ -105,11 +322,44 @@ body {
   background: rgba(0, 0, 0, 0.35);
 }
 
+/* Casa de captura: anel ao redor da peça adversária. */
+.square--capture::after {
+  content: '';
+  position: absolute;
+  inset: 8%;
+  border-radius: 50%;
+  border: 5px solid rgba(0, 0, 0, 0.32);
+}
+
 .piece {
+  position: relative;
+  z-index: 1; /* acima do destaque de anotação (::before) */
   display: grid;
   place-items: center;
   width: 100%;
   height: 100%;
+}
+
+.piece--movable {
+  cursor: grab;
+  touch-action: none;
+}
+
+/* Peça erguida durante o arraste: some da casa de origem. */
+.piece--dragging {
+  opacity: 0;
+}
+
+/* Peça flutuante que acompanha o cursor durante o arraste. */
+.drag-piece {
+  position: fixed;
+  transform: translate(-50%, -50%);
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  line-height: 1;
+  z-index: 1000;
+  cursor: grabbing;
 }
 
 /* Peças brancas: preenchidas de branco com contorno escuro para destacar
