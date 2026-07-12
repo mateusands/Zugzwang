@@ -71,3 +71,9 @@ export async function sendMove(id: string, move: CoordinateMove): Promise<MoveRe
   if (!response.ok) throw new Error('Falha ao enviar o lance.');
   return response.json() as Promise<MoveResponse>;
 }
+
+export async function takeback(id: string): Promise<GameState> {
+  const response = await fetch(`${API}/games/${id}/takeback`, { method: 'POST' });
+  if (!response.ok) throw new Error('Falha ao desfazer.');
+  return response.json() as Promise<GameState>;
+}

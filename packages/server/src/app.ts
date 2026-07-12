@@ -107,5 +107,25 @@ export function createApp(): Express {
     res.json({ ...toState(id, game.engine), playerMove, botMove });
   });
 
+  // Takeback: undo the last pair of moves, back to the human's (White's) turn.
+  app.post('/games/:id/takeback', (req: Request, res: Response) => {
+    const { id } = req.params;
+    const game = id ? games.get(id) : undefined;
+    if (!game || !id) {
+      res.status(404).json({ error: 'game not found' });
+      return;
+    }
+
+    const { engine } = game;
+    if (engine.history().length > 0) {
+      engine.undo(); // desfaz a resposta do bot (ou o lance que encerrou o jogo)
+      if (engine.turn !== 'white' && engine.history().length > 0) {
+        engine.undo(); // e o lance do jogador, voltando à vez das brancas
+      }
+    }
+
+    res.json(toState(id, engine));
+  });
+
   return app;
 }

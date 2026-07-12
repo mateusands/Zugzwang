@@ -34,11 +34,11 @@ convenções de commit/branch/PR e evolução incremental documentada.
 
 ## Stack
 
-| Pacote             | Tecnologia                   | Papel                                      |
-| ------------------ | ---------------------------- | ------------------------------------------ |
-| `@zugzwang/engine` | TypeScript, chess.js, Vitest | Regras do xadrez e (futuro) lógica do bot  |
-| `@zugzwang/server` | TypeScript, Express          | API HTTP (hoje: health check)              |
-| `@zugzwang/web`    | TypeScript, React, Vite      | Tabuleiro clicável para jogar contra o bot |
+| Pacote             | Tecnologia                   | Papel                                        |
+| ------------------ | ---------------------------- | -------------------------------------------- |
+| `@zugzwang/engine` | TypeScript, chess.js, Vitest | Regras do xadrez, bot (minimax) e análise    |
+| `@zugzwang/server` | TypeScript, Express          | API de jogo (partidas, lances, resposta bot) |
+| `@zugzwang/web`    | TypeScript, React, Vite      | Tabuleiro clicável para jogar contra o bot   |
 
 Ferramentas transversais: **pnpm workspaces**, **ESLint**, **Prettier**.
 
@@ -101,9 +101,9 @@ pnpm format         # Prettier --write
 ```
 zugzwang/
 ├── packages/
-│   ├── engine/   # Wrapper sobre chess.js + lógica do bot (futuro)
-│   ├── server/   # API HTTP em Express (esqueleto)
-│   └── web/      # Cliente React + Vite (esqueleto)
+│   ├── engine/   # Regras (wrapper chess.js) + bot (minimax) + análise + CLI
+│   ├── server/   # API de jogo em Express (estado em memória)
+│   └── web/      # Cliente React + Vite (tabuleiro jogável)
 ├── tsconfig.base.json   # Config TypeScript compartilhada
 ├── eslint.config.js     # Lint compartilhado
 ├── pnpm-workspace.yaml
@@ -113,22 +113,31 @@ zugzwang/
 
 ## Roadmap
 
-1. **Base local** — _fase atual_: monorepo, wrapper do engine, esqueletos de
-   server e web, testes e tooling.
-2. **Regras completas do jogo** — movimentos legais, xeque, xeque-mate,
-   afogamento, roque, _en passant_ e promoção, com boa cobertura de testes.
-3. **Bot com minimax** — avaliação de posição e busca com poda alfa-beta.
-4. **Bot refinado** — níveis de dificuldade, melhorias de avaliação e busca.
-5. **CI/CD e deploy** — integração contínua e publicação em servidor próprio.
+**Concluído:**
+
+1. **Base local** — monorepo, wrapper do engine, tooling.
+2. **Regras completas** — movimentos legais, xeque/mate/afogamento, roque, _en
+   passant_, promoção, histórico/PGN.
+3. **Bot com minimax** — avaliação de posição e poda alfa-beta.
+4. **Bot refinado** — estrutura de peões, segurança do rei, controle de centro;
+   ordenação de lances, profundidade adaptativa e tabela de transposição.
+5. **Polish** — desfazer, níveis de dificuldade, análise pós-jogo, CLI.
+6. **Interação no navegador** — API de jogo no server + tabuleiro jogável no web
+   (drag/clique, dicas, anotações, sons, promoção, tela de fim, persistência).
+
+**Próximo:** takeback → histórico de partidas → **motor de avaliação
+(Stockfish/WASM)** → revisão e classificação de lances → treinador → bots com
+personalidade. Por fim, **CI/CD e deploy**.
 
 Detalhes das convenções (commits, branches, PRs) estão no
 [CLAUDE.md](CLAUDE.md).
 
 ## Status
 
-🚧 **Em desenvolvimento ativo** — atualmente na **fase 1 (estruturação
-inicial)**. A base do monorepo roda localmente; a lógica de jogo e o bot ainda
-serão implementados.
+🚧 **Em desenvolvimento ativo.** Já é **jogável contra o bot** — no navegador
+(`pnpm dev`) e no terminal (`pnpm --filter @zugzwang/engine play`). Fases 1–6
+concluídas; a próxima grande virada é o motor de avaliação (Stockfish) que
+destrava a revisão de partidas.
 
 ## Licença
 
