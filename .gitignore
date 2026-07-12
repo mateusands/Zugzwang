@@ -30,6 +30,9 @@ Thumbs.db
 # Claude Code (config/skills locais)
 .claude/
 
+# Partidas salvas pela CLI (artefatos de runtime)
+*.pgn
+
 # Vite
 packages/web/dist/
 packages/web/.vite/

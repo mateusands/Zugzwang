@@ -1,18 +1,27 @@
-import { createInterface } from 'node:readline/promises';
+import { createInterface } from 'node:readline';
 import { stdin as input, stdout as output } from 'node:process';
-import { ChessEngine, IllegalMoveError, findBestMove, renderBoard } from '../src/index.js';
+import { readFileSync, writeFileSync } from 'node:fs';
+import {
+  ChessEngine,
+  IllegalMoveError,
+  analyzeGame,
+  chooseMove,
+  renderBoard,
+  type Difficulty,
+} from '../src/index.js';
 
 /**
- * CLI simples para jogar contra o bot no terminal (você joga de brancas).
+ * CLI para jogar contra o bot no terminal (você joga de brancas).
  *
  * Uso: `pnpm --filter @zugzwang/engine play`
- * Profundidade da busca via env `BOT_DEPTH` (padrão 3).
  *
- * É apenas glue de I/O sobre funções já testadas do engine — sem lógica de
- * xadrez própria.
+ * É glue de I/O sobre funções já testadas do engine — sem lógica de xadrez
+ * própria. As linhas são consumidas por um iterador assíncrono, que funciona
+ * tanto no terminal quanto com entrada redirecionada.
  */
 
-const DEPTH = Number(process.env.BOT_DEPTH ?? 3);
+const DIFFICULTIES: readonly Difficulty[] = ['easy', 'medium', 'hard'];
+const DEFAULT_SAVE_FILE = 'partida.pgn';
 
 function describeResult(engine: ChessEngine): string {
   if (engine.isCheckmate()) return `xeque-mate — ${engine.winner()} vence`;
@@ -21,39 +30,123 @@ function describeResult(engine: ChessEngine): string {
   return 'partida encerrada';
 }
 
-async function main(): Promise<void> {
-  const engine = new ChessEngine();
-  const rl = createInterface({ input, output });
+function printHelp(): void {
+  console.log(
+    [
+      'Comandos:',
+      '  <lance>            joga em SAN (ex.: e4, Nf3, O-O)',
+      '  desfazer           desfaz seu último lance e a resposta do bot',
+      `  salvar [arquivo]   salva a partida em PGN (padrão ${DEFAULT_SAVE_FILE})`,
+      '  carregar [arquivo] carrega uma partida de um PGN',
+      '  analisar           analisa a partida e aponta erros',
+      '  ajuda              mostra esta ajuda',
+      '  sair               encerra',
+    ].join('\n'),
+  );
+}
 
-  console.log('Zugzwang — você joga de brancas contra o bot (profundidade ' + DEPTH + ').');
-  console.log('Digite lances em notação algébrica (ex.: e4, Nf3, O-O). "sair" encerra.\n');
+function printAnalysis(engine: ChessEngine): void {
+  if (engine.history().length === 0) return;
+  const blunders = analyzeGame(engine.pgn()).filter((entry) => entry.isBlunder);
+  console.log('\n— Análise pós-jogo —');
+  if (blunders.length === 0) {
+    console.log('Nenhum erro grave detectado.');
+    return;
+  }
+  for (const entry of blunders) {
+    const dots = entry.color === 'white' ? '' : '... ';
+    console.log(
+      `  ${entry.moveNumber}. ${dots}${entry.san} (erro: -${entry.loss}cp; melhor era ${entry.best})`,
+    );
+  }
+}
 
-  while (!engine.isGameOver()) {
-    console.log(renderBoard(engine) + '\n');
+function renderAndPrompt(engine: ChessEngine): void {
+  console.log('\n' + renderBoard(engine) + '\n');
+  output.write('Seu lance: ');
+}
 
-    if (engine.turn === 'white') {
-      const answer = (await rl.question('Seu lance: ')).trim();
-      if (answer === 'sair' || answer === 'quit') break;
+/** Let the bot reply while it is Black to move and the game is running. */
+function botReplies(engine: ChessEngine, difficulty: Difficulty): void {
+  while (!engine.isGameOver() && engine.turn === 'black') {
+    const best = chooseMove(engine, difficulty);
+    if (!best) break;
+    engine.move(best.san);
+    console.log(`Bot joga: ${best.san}`);
+  }
+}
+
+function applyCommand(engine: ChessEngine, line: string): void {
+  const [command, argument] = line.split(/\s+/, 2);
+  switch (command) {
+    case 'ajuda':
+      printHelp();
+      return;
+    case 'desfazer': {
+      const bot = engine.undo();
+      const you = engine.undo();
+      console.log(you ? `Desfeitos: ${you}/${bot}` : 'Nada para desfazer.');
+      return;
+    }
+    case 'salvar': {
+      const file = argument ?? DEFAULT_SAVE_FILE;
+      writeFileSync(file, engine.pgn(), 'utf8');
+      console.log(`Partida salva em ${file}.`);
+      return;
+    }
+    case 'carregar': {
+      const file = argument ?? DEFAULT_SAVE_FILE;
+      engine.loadPgn(readFileSync(file, 'utf8'));
+      console.log(`Partida carregada de ${file}.`);
+      return;
+    }
+    case 'analisar':
+      printAnalysis(engine);
+      return;
+    default:
       try {
-        engine.move(answer);
+        engine.move(line);
       } catch (error) {
         if (error instanceof IllegalMoveError) {
-          console.log(`Lance ilegal. Legais: ${engine.legalMoves().join(', ')}\n`);
+          console.log(`Lance ilegal. Legais: ${engine.legalMoves().join(', ')}`);
         } else {
           throw error;
         }
       }
-    } else {
-      const best = findBestMove(engine, DEPTH);
-      if (!best) break;
-      engine.move(best.san);
-      console.log(`Bot joga: ${best.san}\n`);
+  }
+}
+
+async function main(): Promise<void> {
+  const rl = createInterface({ input, output, terminal: false });
+  const engine = new ChessEngine();
+  let difficulty: Difficulty | null = null;
+
+  output.write('Dificuldade (easy/medium/hard) [medium]: ');
+
+  for await (const rawLine of rl) {
+    const line = rawLine.trim();
+
+    if (difficulty === null) {
+      difficulty = DIFFICULTIES.find((level) => level === line.toLowerCase()) ?? 'medium';
+      console.log(`\nVocê joga de brancas contra o bot (${difficulty}).`);
+      printHelp();
+      renderAndPrompt(engine);
+      continue;
     }
+
+    if (line === 'sair') break;
+
+    applyCommand(engine, line);
+    botReplies(engine, difficulty);
+
+    if (engine.isGameOver()) break;
+    renderAndPrompt(engine);
   }
 
-  console.log(renderBoard(engine));
-  console.log(`\nFim: ${describeResult(engine)}`);
   rl.close();
+  console.log('\n' + renderBoard(engine));
+  console.log(`\nFim: ${describeResult(engine)}`);
+  printAnalysis(engine);
 }
 
 main().catch((error: unknown) => {
