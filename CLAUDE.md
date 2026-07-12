@@ -25,21 +25,29 @@ como um **monorepo com pnpm workspaces**.
 ```
 zugzwang/
 ├── packages/
-│   ├── engine/   # Wrapper sobre chess.js + (futuro) lógica do bot
+│   ├── engine/   # Regras (wrapper chess.js) + bot (minimax) + análise
+│   │   ├── src/
+│   │   │   ├── engine.ts   # ChessEngine — ÚNICO ponto que toca chess.js
+│   │   │   ├── bot.ts      # avaliação, minimax+αβ, dificuldade, análise
+│   │   │   ├── render.ts   # tabuleiro em texto (para a CLI)
+│   │   │   └── index.ts    # API pública do pacote
+│   │   └── scripts/play.ts # CLI: jogar contra o bot no terminal
+│   ├── server/   # API de jogo (Express, estado em memória)
 │   │   └── src/
-│   │       ├── engine.ts   # ChessEngine — ÚNICO ponto que toca chess.js
-│   │       └── index.ts    # API pública do pacote
-│   ├── server/   # API HTTP (Express). Hoje só GET /health
-│   │   └── src/
-│   │       ├── app.ts      # createApp() — app testável, sem listen()
+│   │       ├── app.ts      # createApp() — rotas /games, testável sem listen()
 │   │       └── index.ts    # bootstrap (listen na porta)
-│   └── web/      # Cliente React + Vite. Hoje só um placeholder de tabuleiro
-│       └── src/
+│   └── web/      # Cliente React + Vite — tabuleiro jogável
+│       └── src/               # App, BoardView, components/, hooks, helpers puros
 ├── tsconfig.base.json      # Config TS compartilhada (cada pacote extende)
 ├── eslint.config.js        # ESLint flat config compartilhado
+├── .gitattributes          # Fim de linha LF (.bat/.cmd em CRLF)
 ├── pnpm-workspace.yaml
 └── package.json            # Scripts raiz (dev/build/test/lint/format)
 ```
+
+> **Docs de apoio (locais, em `.claude/`, fora do git):** `roadmap.md` (fases
+> 6–12 detalhadas) e `HARDENING.md` (armadilhas e decisões acumuladas — leia
+> antes de mexer no código).
 
 ## Regra de ouro do engine
 
@@ -66,9 +74,12 @@ Por pacote:
 
 ```bash
 pnpm --filter @zugzwang/engine test
+pnpm --filter @zugzwang/engine play   # jogar contra o bot no terminal
 pnpm --filter @zugzwang/server dev
 pnpm --filter @zugzwang/web dev
 ```
+
+Para jogar no navegador: `pnpm dev` e abra `http://localhost:5173`.
 
 ## Regras de código
 
@@ -132,26 +143,34 @@ Trabalhe sempre em branch; não faça commits direto na `main`.
 
 ## O que NÃO fazer ainda
 
-> Estas restrições valem para a fase atual (estruturação inicial). Não
-> implemente por engano em sessões futuras sem que o dono do projeto peça.
+> Restrições que continuam valendo. Não implemente por engano sem que o dono do
+> projeto peça.
 
-- **Nada de GitHub Actions / CI.** Nenhum workflow em `.github/`. CI/CD é uma
-  fase posterior (ver Roadmap).
-- **Nada de Docker nem deploy.** Sem `Dockerfile`, sem scripts de deploy.
-- **Nada de lógica de jogo além do necessário.** O engine hoje é só o wrapper
-  do chess.js + testes de exemplo; server e web são esqueletos.
+- **Nada de GitHub Actions / CI.** Nenhum workflow em `.github/`. CI/CD ainda é
+  fase posterior.
+- **Nada de Docker nem deploy.** Sem `Dockerfile`, sem scripts de deploy. O
+  proxy do Vite (`/api` → server) é **só de desenvolvimento**.
 - **Não commitar nem dar push automaticamente.** O dono do projeto revisa e
-  commita manualmente, a menos que peça o contrário explicitamente.
+  commita/mergeia manualmente, a menos que peça o contrário explicitamente. O
+  fluxo é: branch → PR → dono mergeia → sincroniza `main` → apaga a branch.
 
 ## Roadmap (fases)
 
-1. **Base local** _(fase atual)_ — monorepo, wrapper do engine, esqueletos de
-   server e web, testes de exemplo, tooling (lint/format).
-2. **Regras completas do jogo** — expor no engine tudo que o jogo precisa
-   (movimentos legais, xeque, mate, afogamento, roque, en passant, promoção),
-   com boa cobertura de testes.
-3. **Bot com minimax** — avaliação de posição + minimax com poda alfa-beta.
-4. **Bot refinado** — melhorias de avaliação, profundidade, níveis de
-   dificuldade, quiescence search etc.
-5. **CI/CD e deploy** — GitHub Actions (lint + testes + build) e deploy em
-   servidor próprio. **Só nesta fase** entram Actions/Docker.
+**Concluídas** (jogável no navegador e no terminal):
+
+1. **Base local** — monorepo, wrapper do engine, tooling (lint/format).
+2. **Regras completas** — movimentos legais, xeque/mate/afogamento, roque, en
+   passant, promoção, histórico/PGN.
+3. **Bot com minimax** — avaliação + poda alfa-beta.
+4. **Bot refinado** — estrutura de peões, segurança do rei, controle de centro;
+   ordenação de lances, profundidade adaptativa, tabela de transposição.
+5. **Polish** — desfazer (`undo`), níveis de dificuldade, análise pós-jogo, CLI.
+6. **Interação no navegador** — server (API de jogo) + web (tabuleiro jogável:
+   drag/clique, dicas, anotações, sons, promoção, tela de fim, persistência).
+
+**Próximas** (detalhe em `.claude/roadmap.md`): 7 takeback · 8 histórico de
+partidas · **9 motor de avaliação (Stockfish/WASM — gargalo)** · 10 revisão e
+classificação de lances · 11 treinador (comentários) · 12 bots com personalidade.
+
+**CI/CD + deploy** (GitHub Actions, Docker) entram **só** quando o dono pedir —
+não antes.
