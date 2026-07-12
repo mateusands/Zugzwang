@@ -1,4 +1,4 @@
-import type { ChessEngine, PieceType, PlayerColor } from './engine.js';
+import { ChessEngine, type MoveResult, type PieceType, type PlayerColor } from './engine.js';
 
 /**
  * Bot do Zugzwang — avaliação estática e escolha de lance.
@@ -111,4 +111,78 @@ export function evaluate(engine: ChessEngine): number {
     score += piece.color === 'white' ? value : -value;
   }
   return score;
+}
+
+/** Score assigned to checkmate — larger than any material imbalance. */
+const MATE_SCORE = 1_000_000;
+
+/**
+ * Minimax score of the position, from White's point of view, searching
+ * `depth` plies with alpha-beta pruning. White maximizes, Black minimizes.
+ */
+function search(engine: ChessEngine, depth: number, alpha: number, beta: number): number {
+  if (engine.isCheckmate()) {
+    // The side to move is mated. A faster mate (more depth left) scores higher.
+    const mate = MATE_SCORE + depth;
+    return engine.turn === 'white' ? -mate : mate;
+  }
+  if (engine.isGameOver()) return 0; // stalemate or any draw
+  if (depth === 0) return evaluate(engine);
+
+  const maximizing = engine.turn === 'white';
+  let best = maximizing ? -Infinity : Infinity;
+
+  for (const san of engine.legalMoves()) {
+    const child = new ChessEngine(engine.fen);
+    child.move(san);
+    const score = search(child, depth - 1, alpha, beta);
+
+    if (maximizing) {
+      best = Math.max(best, score);
+      alpha = Math.max(alpha, best);
+    } else {
+      best = Math.min(best, score);
+      beta = Math.min(beta, best);
+    }
+    if (alpha >= beta) break; // opponent already has a better option elsewhere
+  }
+
+  return best;
+}
+
+/**
+ * Choose the best move for the side to move, searching `depth` plies ahead.
+ *
+ * Does not mutate `engine` — every candidate is tried on a clone.
+ *
+ * @param depth Number of plies to search (>= 1).
+ * @returns The chosen move, or `null` when the game is already over.
+ * @throws {RangeError} If `depth` is smaller than 1.
+ */
+export function findBestMove(engine: ChessEngine, depth: number): MoveResult | null {
+  if (depth < 1) throw new RangeError('depth must be at least 1');
+
+  const maximizing = engine.turn === 'white';
+  let bestMove: MoveResult | null = null;
+  let bestScore = maximizing ? -Infinity : Infinity;
+  let alpha = -Infinity;
+  let beta = Infinity;
+
+  for (const san of engine.legalMoves()) {
+    const child = new ChessEngine(engine.fen);
+    const move = child.move(san);
+    const score = search(child, depth - 1, alpha, beta);
+
+    if (maximizing ? score > bestScore : score < bestScore) {
+      bestScore = score;
+      bestMove = move;
+    }
+    if (maximizing) {
+      alpha = Math.max(alpha, bestScore);
+    } else {
+      beta = Math.min(beta, bestScore);
+    }
+  }
+
+  return bestMove;
 }
