@@ -1,4 +1,4 @@
-import { Chess } from 'chess.js';
+import { Chess, type Move, type Square } from 'chess.js';
 
 /**
  * Isolation layer over `chess.js`.
@@ -10,7 +10,11 @@ import { Chess } from 'chess.js';
 
 export type PlayerColor = 'white' | 'black';
 
+export type PieceType = 'p' | 'n' | 'b' | 'r' | 'q' | 'k';
+
 export type PromotionPiece = 'q' | 'r' | 'b' | 'n';
+
+export type CastleSide = 'kingside' | 'queenside';
 
 export type GameStatus = 'in_progress' | 'check' | 'checkmate' | 'stalemate' | 'draw';
 
@@ -27,10 +31,26 @@ export interface MoveResult {
   from: string;
   /** Destination square, e.g. `'e4'`. */
   to: string;
-  /** Standard Algebraic Notation, e.g. `'e4'` or `'Nf3'`. */
+  /** Standard Algebraic Notation, e.g. `'e4'`, `'exd5'` or `'O-O'`. */
   san: string;
   /** Colour of the side that made the move. */
   color: PlayerColor;
+  /** Type of the piece that moved. */
+  piece: PieceType;
+  /** Type of the captured piece, or `null` when the move is not a capture. */
+  captured: PieceType | null;
+  /** Piece a pawn was promoted to, or `null` when there is no promotion. */
+  promotion: PromotionPiece | null;
+  /** Whether the move captured a piece (including en passant). */
+  isCapture: boolean;
+  /** Whether the move was an en passant capture. */
+  isEnPassant: boolean;
+  /** Which side the move castled to, or `null` when it is not a castle. */
+  castle: CastleSide | null;
+  /** Whether the move leaves the opponent in check. */
+  check: boolean;
+  /** Whether the move checkmates the opponent. */
+  checkmate: boolean;
   /** Board position after the move, in Forsyth–Edwards Notation. */
   fen: string;
 }
@@ -93,23 +113,23 @@ export class ChessEngine {
     return this.#chess.moves();
   }
 
+  /** Legal moves for the piece on `square`, in Standard Algebraic Notation. */
+  movesFrom(square: string): string[] {
+    return this.#chess.moves({ square: square as Square });
+  }
+
   /**
    * Apply a move to the board.
    *
-   * @param move Either SAN (e.g. `'e4'`) or coordinate form
-   *   (e.g. `{ from: 'e2', to: 'e4' }`).
+   * @param move Either SAN (e.g. `'e4'`, `'O-O'`) or coordinate form
+   *   (e.g. `{ from: 'e2', to: 'e4' }`). Promotions in coordinate form must
+   *   supply `promotion`.
    * @throws {IllegalMoveError} If the move is not legal in the current position.
    */
   move(move: MoveInput | string): MoveResult {
     try {
-      const result = this.#chess.move(move);
-      return {
-        from: result.from,
-        to: result.to,
-        san: result.san,
-        color: toPlayerColor(result.color),
-        fen: this.#chess.fen(),
-      };
+      const applied = this.#chess.move(move);
+      return this.#toMoveResult(applied);
     } catch {
       // chess.js throws a generic Error on illegal moves; normalise it.
       throw new IllegalMoveError(move);
@@ -124,5 +144,32 @@ export class ChessEngine {
   /** Reset the board to the standard initial position. */
   reset(): void {
     this.#chess.reset();
+  }
+
+  #toMoveResult(move: Move): MoveResult {
+    const castle: CastleSide | null = move.isKingsideCastle()
+      ? 'kingside'
+      : move.isQueensideCastle()
+        ? 'queenside'
+        : null;
+
+    return {
+      from: move.from,
+      to: move.to,
+      san: move.san,
+      color: toPlayerColor(move.color),
+      piece: move.piece,
+      captured: move.captured ?? null,
+      // chess.js only ever promotes to q/r/b/n, so narrowing the symbol is safe.
+      promotion: (move.promotion as PromotionPiece | undefined) ?? null,
+      // Derive from the captured piece: chess.js `isCapture()` excludes en
+      // passant (flag 'e'), but a pawn is still taken there.
+      isCapture: move.captured !== undefined,
+      isEnPassant: move.isEnPassant(),
+      castle,
+      check: this.#chess.isCheck(),
+      checkmate: this.#chess.isCheckmate(),
+      fen: this.#chess.fen(),
+    };
   }
 }
