@@ -1,4 +1,10 @@
-import { ChessEngine, type MoveResult, type PieceType, type PlayerColor } from './engine.js';
+import {
+  ChessEngine,
+  type MoveResult,
+  type PieceType,
+  type PlacedPiece,
+  type PlayerColor,
+} from './engine.js';
 
 /**
  * Bot do Zugzwang — avaliação estática e escolha de lance.
@@ -97,30 +103,178 @@ function tableIndex(square: string, color: PlayerColor): number {
   return color === 'white' ? (8 - rank) * 8 + file : (rank - 1) * 8 + file;
 }
 
+const CENTER_SQUARES = new Set(['d4', 'e4', 'd5', 'e5']);
+const CENTER_OCCUPATION_BONUS = 20;
+const DOUBLED_PAWN_PENALTY = 20;
+const ISOLATED_PAWN_PENALTY = 15;
+const KING_SHIELD_BONUS = 12;
+
+function fileOf(square: string): number {
+  return square.charCodeAt(0) - 'a'.charCodeAt(0);
+}
+
+function rankOf(square: string): number {
+  return Number(square[1]);
+}
+
+/**
+ * Positional bonus for `color`, beyond material and piece-square tables:
+ * center occupation, pawn structure (doubled/isolated) and king safety
+ * (pawn shield). Symmetric by construction, so it cancels out in a mirrored
+ * position.
+ */
+function positionalBonus(pieces: PlacedPiece[], color: PlayerColor): number {
+  const own = pieces.filter((piece) => piece.color === color);
+  let bonus = 0;
+
+  // Center occupation.
+  for (const piece of own) {
+    if (CENTER_SQUARES.has(piece.square)) bonus += CENTER_OCCUPATION_BONUS;
+  }
+
+  // Pawn structure: doubled and isolated pawns, counted per file.
+  const pawnsPerFile = new Map<number, number>();
+  for (const piece of own) {
+    if (piece.type === 'p') {
+      const file = fileOf(piece.square);
+      pawnsPerFile.set(file, (pawnsPerFile.get(file) ?? 0) + 1);
+    }
+  }
+  for (const [file, count] of pawnsPerFile) {
+    if (count > 1) bonus -= DOUBLED_PAWN_PENALTY * (count - 1);
+    const hasNeighbour = pawnsPerFile.has(file - 1) || pawnsPerFile.has(file + 1);
+    if (!hasNeighbour) bonus -= ISOLATED_PAWN_PENALTY * count;
+  }
+
+  // King safety: friendly pawns on the squares immediately around the king.
+  const king = own.find((piece) => piece.type === 'k');
+  if (king) {
+    const ownPawns = new Set(own.filter((p) => p.type === 'p').map((p) => p.square));
+    const kingFile = fileOf(king.square);
+    const kingRank = rankOf(king.square);
+    for (let df = -1; df <= 1; df++) {
+      for (let dr = -1; dr <= 1; dr++) {
+        if (df === 0 && dr === 0) continue;
+        const file = kingFile + df;
+        const rank = kingRank + dr;
+        if (file < 0 || file > 7 || rank < 1 || rank > 8) continue;
+        const square = String.fromCharCode('a'.charCodeAt(0) + file) + rank;
+        if (ownPawns.has(square)) bonus += KING_SHIELD_BONUS;
+      }
+    }
+  }
+
+  return bonus;
+}
+
 /**
  * Static evaluation of the position, in centipawns, from White's point of
- * view: positive favours White, negative favours Black. Does not look ahead —
- * terminal positions (checkmate/draw) are handled by the search.
+ * view: positive favours White, negative favours Black. Combines material,
+ * piece-square tables and positional terms (center, pawn structure, king
+ * safety). Does not look ahead — terminal positions (checkmate/draw) are
+ * handled by the search.
  */
 export function evaluate(engine: ChessEngine): number {
+  const pieces = engine.pieces();
   let score = 0;
-  for (const piece of engine.pieces()) {
+
+  for (const piece of pieces) {
     const table = PIECE_SQUARE_TABLES[piece.type];
     const positional = table[tableIndex(piece.square, piece.color)] ?? 0;
     const value = PIECE_VALUES[piece.type] + positional;
     score += piece.color === 'white' ? value : -value;
   }
+
+  score += positionalBonus(pieces, 'white');
+  score -= positionalBonus(pieces, 'black');
   return score;
 }
 
 /** Score assigned to checkmate — larger than any material imbalance. */
 const MATE_SCORE = 1_000_000;
 
+/** Search priority of a move, inferred from its SAN, for move ordering. */
+function movePriority(san: string): number {
+  if (san.includes('#')) return 4; // mate
+  if (san.includes('=')) return 3; // promotion
+  if (san.includes('x')) return 2; // capture
+  if (san.includes('+')) return 1; // check
+  return 0; // quiet
+}
+
+/**
+ * Order moves so the most forcing ones (mate, promotion, capture, check) are
+ * searched first. Better ordering makes alpha-beta prune more. Pure — returns
+ * a new array and never drops or duplicates moves.
+ */
+export function orderMoves(sans: string[]): string[] {
+  return [...sans].sort((a, b) => movePriority(b) - movePriority(a));
+}
+
+/** Piece count at or below which the endgame warrants a deeper search. */
+const ENDGAME_PIECE_COUNT = 10;
+
+/**
+ * Effective search depth: search one ply deeper once the board thins out into
+ * an endgame, where positions are sharper and cheaper to search.
+ */
+export function adaptiveDepth(pieceCount: number, baseDepth: number): number {
+  return pieceCount <= ENDGAME_PIECE_COUNT ? baseDepth + 1 : baseDepth;
+}
+
+/** Whether a cached score is exact or only a bound (for alpha-beta reuse). */
+export type TtFlag = 'EXACT' | 'LOWER' | 'UPPER';
+
+export interface TtEntry {
+  depth: number;
+  score: number;
+  flag: TtFlag;
+}
+
+/**
+ * Transposition table: caches search results by position (FEN) so positions
+ * reached by different move orders are not searched twice. Keeps the entry
+ * searched to the greater depth.
+ */
+export class TranspositionTable {
+  readonly #entries = new Map<string, TtEntry>();
+
+  get(key: string): TtEntry | undefined {
+    return this.#entries.get(key);
+  }
+
+  set(key: string, depth: number, score: number, flag: TtFlag): void {
+    const existing = this.#entries.get(key);
+    if (!existing || depth >= existing.depth) {
+      this.#entries.set(key, { depth, score, flag });
+    }
+  }
+}
+
 /**
  * Minimax score of the position, from White's point of view, searching
- * `depth` plies with alpha-beta pruning. White maximizes, Black minimizes.
+ * `depth` plies with alpha-beta pruning, move ordering and a transposition
+ * table. White maximizes, Black minimizes.
  */
-function search(engine: ChessEngine, depth: number, alpha: number, beta: number): number {
+function search(
+  engine: ChessEngine,
+  depth: number,
+  alpha: number,
+  beta: number,
+  tt: TranspositionTable,
+): number {
+  const alphaOrigin = alpha;
+  const betaOrigin = beta;
+  const key = engine.fen;
+
+  const cached = tt.get(key);
+  if (cached && cached.depth >= depth) {
+    if (cached.flag === 'EXACT') return cached.score;
+    if (cached.flag === 'LOWER') alpha = Math.max(alpha, cached.score);
+    else beta = Math.min(beta, cached.score);
+    if (alpha >= beta) return cached.score;
+  }
+
   if (engine.isCheckmate()) {
     // The side to move is mated. A faster mate (more depth left) scores higher.
     const mate = MATE_SCORE + depth;
@@ -132,10 +286,10 @@ function search(engine: ChessEngine, depth: number, alpha: number, beta: number)
   const maximizing = engine.turn === 'white';
   let best = maximizing ? -Infinity : Infinity;
 
-  for (const san of engine.legalMoves()) {
+  for (const san of orderMoves(engine.legalMoves())) {
     const child = new ChessEngine(engine.fen);
     child.move(san);
-    const score = search(child, depth - 1, alpha, beta);
+    const score = search(child, depth - 1, alpha, beta, tt);
 
     if (maximizing) {
       best = Math.max(best, score);
@@ -147,31 +301,37 @@ function search(engine: ChessEngine, depth: number, alpha: number, beta: number)
     if (alpha >= beta) break; // opponent already has a better option elsewhere
   }
 
+  const flag: TtFlag = best <= alphaOrigin ? 'UPPER' : best >= betaOrigin ? 'LOWER' : 'EXACT';
+  tt.set(key, depth, best, flag);
   return best;
 }
 
 /**
- * Choose the best move for the side to move, searching `depth` plies ahead.
+ * Choose the best move for the side to move. Searches `depth` plies ahead
+ * (deeper in the endgame, see {@link adaptiveDepth}) with alpha-beta pruning,
+ * move ordering and a transposition table.
  *
  * Does not mutate `engine` — every candidate is tried on a clone.
  *
- * @param depth Number of plies to search (>= 1).
+ * @param depth Base number of plies to search (>= 1).
  * @returns The chosen move, or `null` when the game is already over.
  * @throws {RangeError} If `depth` is smaller than 1.
  */
 export function findBestMove(engine: ChessEngine, depth: number): MoveResult | null {
   if (depth < 1) throw new RangeError('depth must be at least 1');
 
+  const effectiveDepth = adaptiveDepth(engine.pieces().length, depth);
+  const tt = new TranspositionTable();
   const maximizing = engine.turn === 'white';
   let bestMove: MoveResult | null = null;
   let bestScore = maximizing ? -Infinity : Infinity;
   let alpha = -Infinity;
   let beta = Infinity;
 
-  for (const san of engine.legalMoves()) {
+  for (const san of orderMoves(engine.legalMoves())) {
     const child = new ChessEngine(engine.fen);
     const move = child.move(san);
-    const score = search(child, depth - 1, alpha, beta);
+    const score = search(child, effectiveDepth - 1, alpha, beta, tt);
 
     if (maximizing ? score > bestScore : score < bestScore) {
       bestScore = score;

@@ -12,3 +12,4 @@ export {
 } from './engine.js';
 
 export { evaluate, findBestMove } from './bot.js';
+export { renderBoard } from './render.js';
