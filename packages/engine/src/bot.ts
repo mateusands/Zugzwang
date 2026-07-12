@@ -190,6 +190,20 @@ export function evaluate(engine: ChessEngine): number {
   return score;
 }
 
+/** Difficulty presets, mapped to search depth. */
+export type Difficulty = 'easy' | 'medium' | 'hard';
+
+const DIFFICULTY_DEPTH: Record<Difficulty, number> = {
+  easy: 1,
+  medium: 3,
+  hard: 4,
+};
+
+/** Search depth used for a difficulty level. */
+export function difficultyDepth(difficulty: Difficulty): number {
+  return DIFFICULTY_DEPTH[difficulty];
+}
+
 /** Score assigned to checkmate — larger than any material imbalance. */
 const MATE_SCORE = 1_000_000;
 
@@ -345,4 +359,13 @@ export function findBestMove(engine: ChessEngine, depth: number): MoveResult | n
   }
 
   return bestMove;
+}
+
+/**
+ * Choose a move at the given difficulty level (a preset search depth).
+ *
+ * @returns The chosen move, or `null` when the game is already over.
+ */
+export function chooseMove(engine: ChessEngine, difficulty: Difficulty): MoveResult | null {
+  return findBestMove(engine, difficultyDepth(difficulty));
 }
