@@ -131,6 +131,14 @@ describe('readSavedGames / writeSavedGames', () => {
     expect(readSavedGames(storage)).toEqual(games);
   });
 
+  it('gravar uma lista vazia persiste (apagar a última partida não ressuscita a anterior)', () => {
+    const storage = fakeStorage({ [SAVED_GAMES_KEY]: serializeSavedGames([sampleGame('a')]) });
+
+    writeSavedGames([], storage);
+
+    expect(readSavedGames(storage)).toEqual([]);
+  });
+
   it('com a quota cheia, descarta as mais antigas até caber', () => {
     // Dado um storage que rejeita as duas primeiras gravações por falta de espaço
     let failures = 2;

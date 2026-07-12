@@ -118,11 +118,12 @@ export function readSavedGames(storage: GamesStorage): SavedGame[] {
  */
 export function writeSavedGames(games: SavedGame[], storage: GamesStorage): void {
   let list = games;
-  while (list.length > 0) {
+  for (;;) {
     try {
       storage.setItem(SAVED_GAMES_KEY, serializeSavedGames(list));
       return;
     } catch {
+      if (list.length === 0) return; // nem o envelope vazio coube: desiste
       list = list.slice(0, -1); // descarta a mais antiga (fim da lista)
     }
   }
