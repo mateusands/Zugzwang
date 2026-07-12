@@ -95,12 +95,12 @@ export function createApp(): Express {
       throw error;
     }
 
-    let botMove: string | null = null;
+    let botMove: { san: string; from: string; to: string } | null = null;
     if (!game.engine.isGameOver() && game.engine.turn === 'black') {
       const best = chooseMove(game.engine, game.difficulty);
       if (best) {
-        game.engine.move(best.san);
-        botMove = best.san;
+        const applied = game.engine.move(best.san);
+        botMove = { san: applied.san, from: applied.from, to: applied.to };
       }
     }
 

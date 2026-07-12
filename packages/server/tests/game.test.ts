@@ -58,7 +58,10 @@ describe('POST /games/:id/move', () => {
 
     expect(response.status).toBe(200);
     expect(response.body.playerMove).toBe('e4');
-    expect(typeof response.body.botMove).toBe('string');
+    // O lance do bot vem com coordenadas, para o tabuleiro animar o movimento.
+    expect(typeof response.body.botMove.san).toBe('string');
+    expect(typeof response.body.botMove.from).toBe('string');
+    expect(typeof response.body.botMove.to).toBe('string');
     // Após o lance do humano e a resposta do bot, é a vez das brancas de novo.
     expect(response.body.turn).toBe('white');
     expect(response.body.history).toHaveLength(2);

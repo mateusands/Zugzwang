@@ -21,9 +21,15 @@ export interface GameState {
   history: string[];
 }
 
+export interface BotMove {
+  san: string;
+  from: string;
+  to: string;
+}
+
 export interface MoveResponse extends GameState {
   playerMove: string;
-  botMove: string | null;
+  botMove: BotMove | null;
 }
 
 export type Difficulty = 'easy' | 'medium' | 'hard';
