@@ -199,6 +199,16 @@ export class ChessEngine {
     return this.#chess.history();
   }
 
+  /**
+   * Undo the most recent move.
+   *
+   * @returns The undone move in Standard Algebraic Notation, or `null` when
+   *   there is no move to undo.
+   */
+  undo(): string | null {
+    return this.#chess.undo()?.san ?? null;
+  }
+
   /** Export the game (with headers) in Portable Game Notation (PGN). */
   pgn(): string {
     return this.#chess.pgn();

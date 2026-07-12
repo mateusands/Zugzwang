@@ -11,5 +11,14 @@ export {
   type MoveResult,
 } from './engine.js';
 
-export { evaluate, findBestMove } from './bot.js';
+export {
+  evaluate,
+  evaluatePosition,
+  findBestMove,
+  chooseMove,
+  difficultyDepth,
+  analyzeGame,
+  type Difficulty,
+  type MoveAnalysis,
+} from './bot.js';
 export { renderBoard } from './render.js';
