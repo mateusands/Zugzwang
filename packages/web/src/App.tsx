@@ -11,11 +11,15 @@ import {
 import { pickSound, playSound } from './sounds.js';
 import { gameOutcome } from './outcome.js';
 import { capturedPieces } from './material.js';
+import { fenToPieces } from './fen.js';
+import { clampPly, stepPly } from './replay.js';
 import { usePieceDrag } from './usePieceDrag.js';
 import { CapturedRow } from './components/CapturedRow.js';
 import { PromotionPicker } from './components/PromotionPicker.js';
 import { ConfirmDialog } from './components/ConfirmDialog.js';
 import { EndScreen } from './components/EndScreen.js';
+import { MoveList } from './components/MoveList.js';
+import { ReplayControls } from './components/ReplayControls.js';
 import {
   createGame,
   getGame,
@@ -89,6 +93,8 @@ export function App() {
   const [pendingPromotion, setPendingPromotion] = useState<PendingPromotion | null>(null);
   const [restoring, setRestoring] = useState(true);
   const [annotations, setAnnotations] = useState<Annotations>(EMPTY_ANNOTATIONS);
+  /** Ply exibido ao navegar o histórico; null = no presente (jogo normal). */
+  const [viewPly, setViewPly] = useState<number | null>(null);
   /** Caminho de casas percorrido com o botão direito pressionado. */
   const rightPath = useRef<string[] | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
@@ -98,6 +104,7 @@ export function App() {
     setSelected(null);
     setResigned(false);
     setAnnotations(EMPTY_ANNOTATIONS);
+    setViewPly(null);
     setGame(null);
     try {
       const state = await createGame(level);
@@ -248,7 +255,53 @@ export function App() {
   const { drag, pos: dragPos, beginDrag, cancelDrag } = usePieceDrag(boardRef, handleDrop);
 
   const over = !!game && (game.gameOver || resigned);
-  const playable = !!game && !over && !busy && game.turn === 'white' && !pendingPromotion;
+  const viewing = viewPly !== null;
+  const playable =
+    !!game && !over && !busy && game.turn === 'white' && !pendingPromotion && !viewing;
+  const plyCount = game?.history.length ?? 0;
+
+  // Navegação pelo histórico da partida ao vivo (null = presente). O server
+  // nunca puxa o usuário para o presente — só ação explícita dele.
+  const goToPly = useCallback(
+    (ply: number | null) => {
+      setSelected(null);
+      cancelDrag();
+      setViewPly(ply === null ? null : clampPly(ply, plyCount));
+    },
+    [cancelDrag, plyCount],
+  );
+
+  const stepView = useCallback(
+    (delta: number) => {
+      setSelected(null);
+      cancelDrag();
+      setViewPly((prev) => stepPly(prev, delta, plyCount));
+    },
+    [cancelDrag, plyCount],
+  );
+
+  // Teclado: ← → navegam, Home vai ao início, End volta ao presente.
+  useEffect(() => {
+    if (!game) return;
+    const handler = (event: KeyboardEvent) => {
+      if (pendingPromotion || confirmResign) return;
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        stepView(-1);
+      } else if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        stepView(+1);
+      } else if (event.key === 'Home') {
+        event.preventDefault();
+        if (plyCount > 0) goToPly(0);
+      } else if (event.key === 'End') {
+        event.preventDefault();
+        goToPly(null);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [game, pendingPromotion, confirmResign, stepView, goToPly, plyCount]);
 
   const resign = useCallback(() => {
     setSelected(null);
@@ -326,7 +379,13 @@ export function App() {
   }, []);
 
   const outcome = game && over ? gameOutcome(game.status, game.winner, resigned) : null;
-  const captured = capturedPieces(board.pieces);
+
+  // Ao navegar o histórico, o tabuleiro mostra a posição do ply escolhido
+  // (derivada do FEN); no presente, o estado otimista/animado de sempre.
+  const viewedFen =
+    game && viewPly !== null ? (game.fens[clampPly(viewPly, plyCount)] ?? game.fen) : null;
+  const displayedPieces = viewedFen ? fenToPieces(viewedFen) : board.pieces;
+  const captured = capturedPieces(displayedPieces);
 
   return (
     <main className="app">
@@ -400,7 +459,7 @@ export function App() {
           <div className="board-area">
             <BoardView
               boardRef={boardRef}
-              pieces={board.pieces}
+              pieces={displayedPieces}
               selected={selected}
               targets={selected ? (game.legalTargets[selected] ?? []) : []}
               movable={playable ? Object.keys(game.legalTargets) : []}
@@ -411,7 +470,7 @@ export function App() {
               highlights={annotations.highlights}
               arrows={annotations.arrows}
               dragFrom={drag?.from ?? null}
-              animatedMove={board.animatedMove}
+              animatedMove={viewing ? null : board.animatedMove}
               animationMs={board.animationMs}
               moveSeq={board.seq}
               showHints={showHints}
@@ -445,8 +504,33 @@ export function App() {
             lead={captured.advantage > 0 ? captured.advantage : 0}
           />
 
-          {!over ? <p className="status">{busy ? 'Bot pensando…' : statusText(game)}</p> : null}
-          {!over && botMoveOf(game) ? (
+          {plyCount > 0 ? (
+            <ReplayControls
+              ply={viewPly ?? plyCount}
+              plyCount={plyCount}
+              onFirst={() => goToPly(0)}
+              onPrev={() => stepView(-1)}
+              onNext={() => stepView(+1)}
+              onLast={() => goToPly(null)}
+              onLive={viewing ? () => goToPly(null) : undefined}
+            />
+          ) : null}
+
+          <MoveList
+            sans={game.history}
+            currentPly={viewPly ?? plyCount}
+            onSelect={(ply) => goToPly(ply === plyCount ? null : ply)}
+          />
+
+          {viewing ? (
+            <p className="status status--muted">
+              Vendo o lance {viewPly} de {plyCount} — o jogo continua ao vivo.
+            </p>
+          ) : null}
+          {!over && !viewing ? (
+            <p className="status">{busy ? 'Bot pensando…' : statusText(game)}</p>
+          ) : null}
+          {!over && !viewing && botMoveOf(game) ? (
             <p className="status status--muted">Bot jogou: {botMoveOf(game)?.san}</p>
           ) : null}
         </>

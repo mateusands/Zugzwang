@@ -53,6 +53,7 @@ body {
 .start button,
 .dialog button,
 .endscreen__actions button,
+.replay-controls button,
 .promotion__piece {
   font: inherit;
   font-weight: 600;
@@ -72,6 +73,7 @@ body {
 .start button:hover:not(:disabled),
 .dialog button:hover:not(:disabled),
 .endscreen__actions button:hover:not(:disabled),
+.replay-controls button:hover:not(:disabled),
 .promotion__piece:hover:not(:disabled) {
   background: #474751;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
@@ -81,6 +83,7 @@ body {
 .start button:active:not(:disabled),
 .dialog button:active:not(:disabled),
 .endscreen__actions button:active:not(:disabled),
+.replay-controls button:active:not(:disabled),
 .promotion__piece:active:not(:disabled) {
   transform: translateY(1px);
 }
@@ -415,4 +418,68 @@ select {
 .error {
   margin: 0;
   color: #ff8a80;
+}
+
+/* Navegação pelo histórico (partida ao vivo e replay de partidas salvas). */
+.replay-controls {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.replay-controls button {
+  padding: 0.35rem 0.7rem;
+}
+
+.replay-controls__counter {
+  min-width: 8.5rem;
+  text-align: center;
+  color: #a0a0a8;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Lista de lances em pares numerados; cada meio-lance é clicável. */
+.moves {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.75rem;
+  justify-content: center;
+  max-width: min(90vw, 34rem);
+  max-height: 5.5rem;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0.25rem 0.5rem;
+  list-style: none;
+}
+
+.moves__row {
+  display: flex;
+  gap: 0.2rem;
+  align-items: baseline;
+}
+
+.moves__number {
+  color: #a0a0a8;
+  font-size: 0.9rem;
+}
+
+.moves__ply {
+  font: inherit;
+  font-size: 0.95rem;
+  padding: 0.05rem 0.35rem;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #f0f0f2;
+  cursor: pointer;
+}
+
+.moves__ply:hover {
+  background: #3a3a43;
+}
+
+.moves__ply[aria-current='true'] {
+  background: #81b64c;
+  color: #10240a;
+  font-weight: 700;
 }
