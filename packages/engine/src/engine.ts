@@ -176,6 +176,16 @@ export class ChessEngine {
     return this.#chess.history();
   }
 
+  /** Export the game (with headers) in Portable Game Notation (PGN). */
+  pgn(): string {
+    return this.#chess.pgn();
+  }
+
+  /** Load a game from Portable Game Notation, replacing the current one. */
+  loadPgn(pgn: string): void {
+    this.#chess.loadPgn(pgn);
+  }
+
   /** Reset the board to the standard initial position. */
   reset(): void {
     this.#chess.reset();
