@@ -11,11 +11,19 @@ import {
 import { pickSound, playSound } from './sounds.js';
 import { gameOutcome } from './outcome.js';
 import { capturedPieces } from './material.js';
+import { fenToPieces } from './fen.js';
+import { clampPly, stepPly } from './replay.js';
 import { usePieceDrag } from './usePieceDrag.js';
 import { CapturedRow } from './components/CapturedRow.js';
 import { PromotionPicker } from './components/PromotionPicker.js';
 import { ConfirmDialog } from './components/ConfirmDialog.js';
 import { EndScreen } from './components/EndScreen.js';
+import { MoveList } from './components/MoveList.js';
+import { ReplayControls } from './components/ReplayControls.js';
+import { ReplayScreen } from './components/ReplayScreen.js';
+import { SavedGamesDialog } from './components/SavedGamesDialog.js';
+import { useSavedGames } from './useSavedGames.js';
+import type { SavedGame } from './savedGames.js';
 import {
   createGame,
   getGame,
@@ -89,6 +97,11 @@ export function App() {
   const [pendingPromotion, setPendingPromotion] = useState<PendingPromotion | null>(null);
   const [restoring, setRestoring] = useState(true);
   const [annotations, setAnnotations] = useState<Annotations>(EMPTY_ANNOTATIONS);
+  /** Ply exibido ao navegar o histórico; null = no presente (jogo normal). */
+  const [viewPly, setViewPly] = useState<number | null>(null);
+  const saved = useSavedGames();
+  /** Partida salva sendo revista; a partida ao vivo (game) fica intocada. */
+  const [replayGame, setReplayGame] = useState<SavedGame | null>(null);
   /** Caminho de casas percorrido com o botão direito pressionado. */
   const rightPath = useRef<string[] | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
@@ -98,6 +111,7 @@ export function App() {
     setSelected(null);
     setResigned(false);
     setAnnotations(EMPTY_ANNOTATIONS);
+    setViewPly(null);
     setGame(null);
     try {
       const state = await createGame(level);
@@ -116,17 +130,17 @@ export function App() {
       setRestoring(false);
       return;
     }
-    let saved: { id: string; difficulty: Difficulty; resigned: boolean };
+    let stored: { id: string; difficulty: Difficulty; resigned: boolean };
     try {
-      saved = JSON.parse(raw) as typeof saved;
+      stored = JSON.parse(raw) as typeof stored;
     } catch {
       setRestoring(false);
       return;
     }
-    getGame(saved.id)
+    getGame(stored.id)
       .then((state) => {
-        setDifficulty(saved.difficulty);
-        setResigned(saved.resigned);
+        setDifficulty(stored.difficulty);
+        setResigned(stored.resigned);
         setGame(state);
         setBoard({
           pieces: state.pieces,
@@ -248,7 +262,84 @@ export function App() {
   const { drag, pos: dragPos, beginDrag, cancelDrag } = usePieceDrag(boardRef, handleDrop);
 
   const over = !!game && (game.gameOver || resigned);
-  const playable = !!game && !over && !busy && game.turn === 'white' && !pendingPromotion;
+  const viewing = viewPly !== null;
+
+  // Auto-save: partida encerrada (mate/empate/desistência) vai para o
+  // localStorage. Dedupe por id e savedAt estável tornam o effect idempotente
+  // (re-render, StrictMode, reload de partida já encerrada).
+  const { saveFinished } = saved;
+  useEffect(() => {
+    if (!game || !over) return;
+    const outcome = gameOutcome(game.status, game.winner, resigned);
+    saveFinished({
+      id: game.id,
+      savedAt: new Date().toISOString(),
+      difficulty,
+      playerColor: 'white',
+      result: { kind: outcome.kind, status: game.status, winner: game.winner, resigned },
+      sans: game.history,
+      fens: game.fens,
+      pgn: game.pgn,
+    });
+  }, [game, over, resigned, difficulty, saveFinished]);
+
+  const startReplay = useCallback(
+    (savedGame: SavedGame) => {
+      saved.closeList();
+      setSelected(null);
+      setReplayGame(savedGame);
+    },
+    [saved],
+  );
+  const playable =
+    !!game && !over && !busy && game.turn === 'white' && !pendingPromotion && !viewing;
+  const plyCount = game?.history.length ?? 0;
+
+  // Navegação pelo histórico da partida ao vivo (null = presente). O server
+  // nunca puxa o usuário para o presente — só ação explícita dele.
+  const goToPly = useCallback(
+    (ply: number | null) => {
+      setSelected(null);
+      cancelDrag();
+      setViewPly(ply === null ? null : clampPly(ply, plyCount));
+    },
+    [cancelDrag, plyCount],
+  );
+
+  const stepView = useCallback(
+    (delta: number) => {
+      setSelected(null);
+      cancelDrag();
+      setViewPly((prev) => stepPly(prev, delta, plyCount));
+    },
+    [cancelDrag, plyCount],
+  );
+
+  // Teclado da partida ao vivo: ← → navegam, Home vai ao início, End volta
+  // ao presente. (O replay de partida salva tem o próprio teclado, no
+  // ReplayScreen — quando ele está aberto, este effect fica de fora.)
+  const { showList } = saved;
+  useEffect(() => {
+    if (!game || replayGame) return;
+    const handler = (event: KeyboardEvent) => {
+      if (pendingPromotion || confirmResign || showList) return;
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        stepView(-1);
+      } else if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        stepView(+1);
+      } else if (event.key === 'Home') {
+        event.preventDefault();
+        if (plyCount > 0) goToPly(0);
+      } else if (event.key === 'End') {
+        event.preventDefault();
+        goToPly(null);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [game, replayGame, showList, pendingPromotion, confirmResign, stepView, goToPly, plyCount]);
 
   const resign = useCallback(() => {
     setSelected(null);
@@ -326,7 +417,13 @@ export function App() {
   }, []);
 
   const outcome = game && over ? gameOutcome(game.status, game.winner, resigned) : null;
-  const captured = capturedPieces(board.pieces);
+
+  // Ao navegar o histórico, o tabuleiro mostra a posição do ply escolhido
+  // (derivada do FEN); no presente, o estado otimista/animado de sempre.
+  const viewedFen =
+    game && viewPly !== null ? (game.fens[clampPly(viewPly, plyCount)] ?? game.fen) : null;
+  const displayedPieces = viewedFen ? fenToPieces(viewedFen) : board.pieces;
+  const captured = capturedPieces(displayedPieces);
 
   return (
     <main className="app">
@@ -337,6 +434,13 @@ export function App() {
 
       {restoring ? (
         <p className="status">Carregando…</p>
+      ) : replayGame ? (
+        <ReplayScreen
+          savedGame={replayGame}
+          suspendKeys={saved.showList}
+          onBack={() => setReplayGame(null)}
+          onOpenList={saved.openList}
+        />
       ) : !game ? (
         <div className="start">
           <label>
@@ -359,100 +463,146 @@ export function App() {
           >
             Jogar
           </button>
+          <button type="button" onClick={saved.openList}>
+            Partidas
+          </button>
         </div>
       ) : (
-        <>
-          <div className="controls">
-            <button
-              type="button"
-              onClick={handleTakeback}
-              disabled={!playable || game.history.length === 0}
-            >
-              Desfazer
-            </button>
-            <button type="button" onClick={() => setConfirmResign(true)} disabled={over}>
-              Desistir
-            </button>
-            <label className="controls__toggle">
-              <input
-                type="checkbox"
-                checked={showHints}
-                onChange={(event) => setShowHints(event.target.checked)}
-              />{' '}
-              Dicas
-            </label>
-            <label className="controls__toggle">
-              <input
-                type="checkbox"
-                checked={soundOn}
-                onChange={(event) => setSoundOn(event.target.checked)}
-              />{' '}
-              Som
-            </label>
-          </div>
-
-          <CapturedRow
-            pieces={captured.byBlack}
-            color="white"
-            lead={captured.advantage < 0 ? -captured.advantage : 0}
+        <div className="game-layout">
+          <MoveList
+            sans={game.history}
+            currentPly={viewPly ?? plyCount}
+            onSelect={(ply) => goToPly(ply === plyCount ? null : ply)}
           />
 
-          <div className="board-area">
-            <BoardView
-              boardRef={boardRef}
-              pieces={board.pieces}
-              selected={selected}
-              targets={selected ? (game.legalTargets[selected] ?? []) : []}
-              movable={playable ? Object.keys(game.legalTargets) : []}
-              onSquarePointerDown={handleSquarePointerDown}
-              onSquareMouseDown={handleSquareMouseDown}
-              onSquareMouseUp={handleSquareMouseUp}
-              onSquareMouseEnter={handleSquareMouseEnter}
-              highlights={annotations.highlights}
-              arrows={annotations.arrows}
-              dragFrom={drag?.from ?? null}
-              animatedMove={board.animatedMove}
-              animationMs={board.animationMs}
-              moveSeq={board.seq}
-              showHints={showHints}
+          <div className="game-layout__main">
+            <div className="controls">
+              <button
+                type="button"
+                onClick={handleTakeback}
+                disabled={!playable || game.history.length === 0}
+              >
+                Desfazer
+              </button>
+              <button type="button" onClick={() => setConfirmResign(true)} disabled={over}>
+                Desistir
+              </button>
+              <button type="button" onClick={saved.openList}>
+                Partidas
+              </button>
+              <label className="controls__toggle">
+                <input
+                  type="checkbox"
+                  checked={showHints}
+                  onChange={(event) => setShowHints(event.target.checked)}
+                />{' '}
+                Dicas
+              </label>
+              <label className="controls__toggle">
+                <input
+                  type="checkbox"
+                  checked={soundOn}
+                  onChange={(event) => setSoundOn(event.target.checked)}
+                />{' '}
+                Som
+              </label>
+            </div>
+
+            <CapturedRow
+              pieces={captured.byBlack}
+              color="white"
+              lead={captured.advantage < 0 ? -captured.advantage : 0}
             />
 
-            {pendingPromotion ? (
-              <PromotionPicker onPick={promote} onCancel={() => setPendingPromotion(null)} />
-            ) : null}
-
-            {confirmResign ? (
-              <ConfirmDialog
-                text="Tem certeza de que deseja abandonar?"
-                confirmLabel="Desistir"
-                onConfirm={resign}
-                onCancel={() => setConfirmResign(false)}
+            <div className="board-area">
+              <BoardView
+                boardRef={boardRef}
+                pieces={displayedPieces}
+                selected={selected}
+                targets={selected ? (game.legalTargets[selected] ?? []) : []}
+                movable={playable ? Object.keys(game.legalTargets) : []}
+                onSquarePointerDown={handleSquarePointerDown}
+                onSquareMouseDown={handleSquareMouseDown}
+                onSquareMouseUp={handleSquareMouseUp}
+                onSquareMouseEnter={handleSquareMouseEnter}
+                highlights={annotations.highlights}
+                arrows={annotations.arrows}
+                dragFrom={drag?.from ?? null}
+                animatedMove={viewing ? null : board.animatedMove}
+                animationMs={board.animationMs}
+                moveSeq={board.seq}
+                showHints={showHints}
               />
-            ) : null}
 
-            {outcome ? (
-              <EndScreen
-                outcome={outcome}
-                onRematch={() => void startGame(difficulty)}
-                onNewBot={() => setGame(null)}
+              {pendingPromotion ? (
+                <PromotionPicker onPick={promote} onCancel={() => setPendingPromotion(null)} />
+              ) : null}
+
+              {confirmResign ? (
+                <ConfirmDialog
+                  text="Tem certeza de que deseja abandonar?"
+                  confirmLabel="Desistir"
+                  onConfirm={resign}
+                  onCancel={() => setConfirmResign(false)}
+                />
+              ) : null}
+
+              {outcome ? (
+                <EndScreen
+                  outcome={outcome}
+                  onRematch={() => void startGame(difficulty)}
+                  onNewBot={() => setGame(null)}
+                />
+              ) : null}
+            </div>
+
+            <CapturedRow
+              pieces={captured.byWhite}
+              color="black"
+              lead={captured.advantage > 0 ? captured.advantage : 0}
+            />
+
+            {/* Slot sempre presente: os controles nascem invisíveis e o
+                tabuleiro não se move quando o primeiro lance os revela. */}
+            <div className={`replay-slot${plyCount === 0 ? ' replay-slot--hidden' : ''}`}>
+              <ReplayControls
+                ply={viewPly ?? plyCount}
+                plyCount={plyCount}
+                onFirst={() => goToPly(0)}
+                onPrev={() => stepView(-1)}
+                onNext={() => stepView(+1)}
+                onLast={() => goToPly(null)}
+                onLive={viewing ? () => goToPly(null) : undefined}
               />
-            ) : null}
+            </div>
+
+            {/* Duas linhas de status com altura reservada — nada desloca. */}
+            <p className="status">
+              {viewing
+                ? `Vendo o lance ${viewPly} de ${plyCount} — o jogo continua ao vivo.`
+                : over
+                  ? ''
+                  : busy
+                    ? 'Bot pensando…'
+                    : statusText(game)}
+            </p>
+            <p className="status status--muted">
+              {!over && !viewing && botMoveOf(game) ? `Bot jogou: ${botMoveOf(game)?.san}` : ''}
+            </p>
           </div>
-
-          <CapturedRow
-            pieces={captured.byWhite}
-            color="black"
-            lead={captured.advantage > 0 ? captured.advantage : 0}
-          />
-
-          {!over ? <p className="status">{busy ? 'Bot pensando…' : statusText(game)}</p> : null}
-          {!over && botMoveOf(game) ? (
-            <p className="status status--muted">Bot jogou: {botMoveOf(game)?.san}</p>
-          ) : null}
-        </>
+        </div>
       )}
 
       {error ? <p className="error">{error}</p> : null}
+
+      {saved.showList ? (
+        <SavedGamesDialog
+          games={saved.savedGames}
+          onReplay={startReplay}
+          onDelete={saved.deleteGame}
+          onClose={saved.closeList}
+        />
+      ) : null}
 
       {drag && dragPos ? (
         <div

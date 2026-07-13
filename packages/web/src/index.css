@@ -53,6 +53,9 @@ body {
 .start button,
 .dialog button,
 .endscreen__actions button,
+.replay-controls button,
+.saved-games__actions button,
+.saved-games__delete,
 .promotion__piece {
   font: inherit;
   font-weight: 600;
@@ -72,6 +75,8 @@ body {
 .start button:hover:not(:disabled),
 .dialog button:hover:not(:disabled),
 .endscreen__actions button:hover:not(:disabled),
+.replay-controls button:hover:not(:disabled),
+.saved-games__actions button:hover:not(:disabled),
 .promotion__piece:hover:not(:disabled) {
   background: #474751;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
@@ -81,6 +86,7 @@ body {
 .start button:active:not(:disabled),
 .dialog button:active:not(:disabled),
 .endscreen__actions button:active:not(:disabled),
+.replay-controls button:active:not(:disabled),
 .promotion__piece:active:not(:disabled) {
   transform: translateY(1px);
 }
@@ -134,6 +140,12 @@ select {
   place-items: center;
   background: rgba(10, 10, 12, 0.55);
   z-index: 1100;
+}
+
+/* Variante para overlays fora do tabuleiro (ex.: lista de partidas na tela
+   inicial), cobrindo a viewport inteira. */
+.overlay--screen {
+  position: fixed;
 }
 
 .button--danger {
@@ -410,9 +422,218 @@ select {
 .status--muted {
   color: #a0a0a8;
   font-size: 0.95rem;
+  min-height: 1.2em; /* linha reservada: não desloca o layout quando vazia */
 }
 
 .error {
   margin: 0;
   color: #ff8a80;
+}
+
+/* Navegação pelo histórico (partida ao vivo e replay de partidas salvas). */
+.replay-controls {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.replay-controls button {
+  padding: 0.35rem 0.7rem;
+}
+
+.replay-controls__counter {
+  min-width: 8.5rem;
+  text-align: center;
+  color: #a0a0a8;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Tabuleiro + painel lateral de lances (à esquerda, estilo chess.com).
+   Colunas laterais SIMÉTRICAS e sempre reservadas: o tabuleiro fica no centro
+   da tela tenha ou não lista de lances — nada se move quando ela aparece. */
+.game-layout {
+  display: grid;
+  grid-template-columns: 12rem auto 12rem;
+  column-gap: 2rem;
+  align-items: start;
+  justify-content: center;
+}
+
+.game-layout > .moves {
+  grid-column: 1;
+  justify-self: end;
+}
+
+.game-layout__main {
+  grid-column: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+/* Painel de lances em pares numerados; cada meio-lance é clicável. */
+.moves {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  width: 11rem;
+  max-height: min(92vw, 560px);
+  overflow-y: auto;
+  margin: 0;
+  padding: 0.5rem;
+  border-radius: 8px;
+  background: #26262c;
+  list-style: none;
+  text-align: left;
+}
+
+.moves__row {
+  display: grid;
+  grid-template-columns: 2rem 1fr 1fr;
+  gap: 0.2rem;
+  align-items: center;
+}
+
+.moves__number {
+  color: #a0a0a8;
+  font-size: 0.9rem;
+}
+
+.moves__ply {
+  font: inherit;
+  font-size: 0.95rem;
+  padding: 0.1rem 0.35rem;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #f0f0f2;
+  cursor: pointer;
+  text-align: left;
+}
+
+.moves__ply:hover {
+  background: #3a3a43;
+}
+
+.moves__ply[aria-current='true'] {
+  background: #81b64c;
+  color: #10240a;
+  font-weight: 700;
+}
+
+/* Espaço reservado dos controles de navegação: nasce invisível e só aparece
+   com o primeiro lance — o tabuleiro não se move. */
+.replay-slot--hidden {
+  visibility: hidden;
+}
+
+/* Tela estreita: painel de lances vai para baixo do tabuleiro. */
+@media (max-width: 1024px) {
+  .game-layout {
+    display: flex;
+    flex-direction: column-reverse;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .moves {
+    width: min(92vw, 560px);
+    max-height: 8rem;
+  }
+}
+
+/* Lista de partidas salvas (overlay). O visual base dos botões (Fechar,
+   apagar) vem do grupo compartilhado de botões de UI, no topo do arquivo. */
+.saved-games {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  width: min(92vw, 26rem);
+  max-height: 80vh;
+  padding: 1.5rem;
+  border-radius: 12px;
+  background: #26262c;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+.saved-games__title {
+  margin: 0;
+  font-size: 1.3rem;
+}
+
+.saved-games__empty {
+  margin: 0;
+  color: #a0a0a8;
+}
+
+.saved-games__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.saved-games__item {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+
+.saved-games__game {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: 8px;
+  border: 1px solid #45454f;
+  background: #3a3a43;
+  color: #f0f0f2;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.saved-games__game:hover {
+  background: #474751;
+}
+
+.saved-games__result {
+  font-weight: 700;
+}
+
+.saved-games__result--win {
+  color: #9ad06a;
+}
+
+.saved-games__result--loss {
+  color: #ff8a80;
+}
+
+.saved-games__result--draw {
+  color: #a0a0a8;
+}
+
+.saved-games__meta,
+.saved-games__date {
+  font-size: 0.85rem;
+  color: #a0a0a8;
+}
+
+.saved-games__delete {
+  padding: 0 0.7rem;
+}
+
+.saved-games__delete:hover:not(:disabled) {
+  background: #5a3038;
+  border-color: #a93226;
+}
+
+.saved-games__actions {
+  display: flex;
+  justify-content: flex-end;
 }

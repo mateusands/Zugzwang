@@ -213,6 +213,20 @@ export class ChessEngine {
   }
 
   /**
+   * Positions of the game as FEN strings: the starting position followed by
+   * the position after each move, in order.
+   *
+   * Invariant: `fenHistory().length === history().length + 1`, and the last
+   * item always equals the current position.
+   */
+  fenHistory(): string[] {
+    const moves = this.#chess.history({ verbose: true });
+    const first = moves[0];
+    if (!first) return [this.fen];
+    return [first.before, ...moves.map((move) => move.after)];
+  }
+
+  /**
    * Undo the most recent move.
    *
    * @returns The undone move in Standard Algebraic Notation, or `null` when

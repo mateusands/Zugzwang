@@ -19,6 +19,9 @@ export interface GameState {
   legalMoves: string[];
   legalTargets: Record<string, string[]>;
   history: string[];
+  /** Posição inicial + posição após cada ply (history.length + 1 itens). */
+  fens: string[];
+  pgn: string;
 }
 
 export interface BotMove {
