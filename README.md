@@ -34,11 +34,12 @@ convenções de commit/branch/PR e evolução incremental documentada.
 
 ## Stack
 
-| Pacote             | Tecnologia                              | Papel                                        |
-| ------------------ | --------------------------------------- | -------------------------------------------- |
-| `@zugzwang/engine` | TypeScript, chess.js, Vitest            | Regras do xadrez, bot (minimax) e análise    |
-| `@zugzwang/server` | TypeScript, Express                     | API de jogo (partidas, lances, resposta bot) |
-| `@zugzwang/web`    | TypeScript, React, Vite, Stockfish/WASM | Tabuleiro jogável, histórico e avaliação     |
+| Pacote               | Tecnologia                              | Papel                                             |
+| -------------------- | --------------------------------------- | ------------------------------------------------- |
+| `@zugzwang/analysis` | TypeScript                              | Contratos, parser UCI e política de qualidade     |
+| `@zugzwang/engine`   | TypeScript, chess.js, Vitest            | Regras do xadrez e bot minimax                    |
+| `@zugzwang/server`   | TypeScript, Express, Stockfish 18/WASM  | API de jogo e fila assíncrona de análise profunda |
+| `@zugzwang/web`      | TypeScript, React, Vite, Stockfish/WASM | Tabuleiro, histórico, revisão e fallback local    |
 
 Ferramentas transversais: **pnpm workspaces**, **ESLint**, **Prettier**.
 
@@ -87,6 +88,24 @@ curl http://localhost:3000/health
 # {"status":"ok","service":"zugzwang-server"}
 ```
 
+O servidor inicia um pool limitado do Stockfish 18 completo para revisar
+partidas em jobs assíncronos. Os resultados e o cache sobrevivem a reinícios em
+`.data/analysis.json`; se o pool não puder iniciar, a revisão continua com o
+motor lite do navegador. O orçamento pode ser ajustado sem alterar código:
+
+```bash
+ANALYSIS_POOL_SIZE=2 ANALYSIS_HASH_MB=512 ANALYSIS_MAXIMUM_DEPTH=30 pnpm --filter @zugzwang/server dev
+```
+
+`ANALYSIS_POOL_SIZE` aceita 1–8 processos, `ANALYSIS_HASH_MB` define o hash total
+dividido pelo pool e `ANALYSIS_DATA_PATH` troca o caminho da persistência. A
+profundidade dos perfis pode ser calibrada com `ANALYSIS_FAST_DEPTH` (18),
+`ANALYSIS_DEEP_DEPTH` (22) e `ANALYSIS_MAXIMUM_DEPTH` (26, até 40). Profundidades
+altas crescem exponencialmente e são indicadas para uma máquina dedicada. A
+saúde do motor está em `GET /analysis/health`; jobs usam
+`POST /analysis/jobs`, `GET /analysis/jobs/:id`, SSE em
+`GET /analysis/jobs/:id/events` e cancelamento em `DELETE /analysis/jobs/:id`.
+
 ### Outros comandos
 
 ```bash
@@ -102,8 +121,9 @@ pnpm format         # Prettier --write
 zugzwang/
 ├── packages/
 │   ├── engine/   # Regras (wrapper chess.js) + bot (minimax) + análise + CLI
-│   ├── server/   # API de jogo em Express (estado em memória)
-│   └── web/      # Cliente React + Vite (tabuleiro jogável)
+│   ├── analysis/ # Contratos e política compartilhados da análise Stockfish
+│   ├── server/   # API de jogo + jobs assíncronos de análise
+│   └── web/      # Cliente React + Vite (tabuleiro, histórico e revisão)
 ├── tsconfig.base.json   # Config TypeScript compartilhada
 ├── eslint.config.js     # Lint compartilhado
 ├── pnpm-workspace.yaml
@@ -130,9 +150,13 @@ zugzwang/
    revê-las lance a lance (replay).
 9. **Motor de avaliação** — Stockfish/WASM num Web Worker; barra de avaliação
    ao lado do tabuleiro (avaliação, melhor lance, probabilidade de vitória).
+10. **Revisão de partida** — classificação lance a lance, precisão, destaques e
+    análise Stockfish full assíncrona no backend com cache persistente. A
+    passagem rápida e o refinamento dos quatro lances mais críticos acontecem
+    em segundo plano durante a própria partida; o encerramento conclui apenas o
+    que ainda não chegou ao cache.
 
-**Próximo:** revisão e classificação de lances → treinador → bots com
-personalidade. Por fim, **CI/CD e deploy**.
+**Próximo:** treinador → bots com personalidade. Por fim, **CI/CD e deploy**.
 
 Detalhes das convenções (commits, branches, PRs) estão no
 [CLAUDE.md](CLAUDE.md).
@@ -141,8 +165,8 @@ Detalhes das convenções (commits, branches, PRs) estão no
 
 🚧 **Em desenvolvimento ativo.** Já é **jogável contra o bot** — no navegador
 (`pnpm dev`) e no terminal (`pnpm --filter @zugzwang/engine play`) — com
-histórico de partidas e barra de avaliação Stockfish. Fases 1–9 concluídas; a
-próxima etapa é a revisão e classificação de lances (usando o motor).
+histórico de partidas, barra de avaliação e revisão profunda com Stockfish.
+Fases 1–10 concluídas; a próxima etapa é o treinador.
 
 ## Licença
 
@@ -151,5 +175,6 @@ Distribuído sob a licença [GNU GPL v3](LICENSE).
 A análise de posições usa o [Stockfish](https://stockfishchess.org/) compilado
 para WebAssembly (via [nmrugg/stockfish.js](https://github.com/nmrugg/stockfish.js)),
 que é software livre sob GPLv3 — por isso este projeto também adota a GPLv3.
-O binário do motor não é versionado aqui: é obtido do pacote `stockfish` (npm)
-e copiado para `packages/web/public/engine/` no `dev`/`build`.
+O binário do motor não é versionado aqui: é obtido do pacote `stockfish` (npm).
+As variantes lite são copiadas para `packages/web/public/engine/` no
+`dev`/`build`; o servidor executa a variante full diretamente do pacote.
