@@ -7,6 +7,7 @@ import {
   type Difficulty,
   type MoveInput,
 } from '@zugzwang/engine';
+import { registerAnalysisRoutes, type AnalysisJobs } from './analysis/analysisRoutes.js';
 
 const DIFFICULTIES: readonly Difficulty[] = ['easy', 'medium', 'hard'];
 
@@ -43,9 +44,19 @@ interface Game {
  * Games are kept in memory, scoped to this app instance (so tests are
  * isolated). All chess logic goes through `@zugzwang/engine`.
  */
-export function createApp(): Express {
+export function createApp(options: { analysisJobs?: AnalysisJobs } = {}): Express {
   const app = express();
   app.use(express.json());
+
+  app.get('/analysis/health', (_req: Request, res: Response) => {
+    if (!options.analysisJobs) {
+      res.status(503).json({ status: 'unavailable' });
+      return;
+    }
+    res.json({ status: 'ok', engine: options.analysisJobs.engine });
+  });
+
+  if (options.analysisJobs) registerAnalysisRoutes(app, options.analysisJobs);
 
   const games = new Map<string, Game>();
 

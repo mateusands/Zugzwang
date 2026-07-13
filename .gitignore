@@ -29,6 +29,7 @@ Thumbs.db
 
 # Claude Code (config/skills locais)
 .claude/
+.data/
 
 # Partidas salvas pela CLI (artefatos de runtime)
 *.pgn
