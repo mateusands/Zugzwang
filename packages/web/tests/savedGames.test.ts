@@ -4,6 +4,8 @@ import {
   parseSavedGames,
   readSavedGames,
   removeSavedGame,
+  setGameReview,
+  setGameReviewCache,
   SAVED_GAMES_KEY,
   SAVED_GAMES_LIMIT,
   serializeSavedGames,
@@ -11,6 +13,7 @@ import {
   type GamesStorage,
   type SavedGame,
 } from '../src/savedGames.js';
+import { emptyMoveCounts, type GameReview, type ReviewCache } from '../src/gameReview.js';
 
 /**
  * Fase 8 — Armazenamento de partidas encerradas no navegador.
@@ -29,6 +32,30 @@ function sampleGame(id: string, savedAt = '2026-07-12T12:00:00.000Z'): SavedGame
     sans: ['e4', 'e5'],
     fens: ['fen0', 'fen1', 'fen2'],
     pgn: '1. e4 e5',
+  };
+}
+
+function sampleReview(): GameReview {
+  return {
+    plies: [],
+    accuracy: { white: 0, black: 0 },
+    counts: { white: emptyMoveCounts(), black: emptyMoveCounts() },
+  };
+}
+
+function sampleCache(): ReviewCache {
+  return {
+    fen0: {
+      quality: 'quick',
+      multiPv: 1,
+      evaluation: {
+        score: { type: 'cp', value: 20 },
+        winPercent: 52,
+        bestMove: 'e2e4',
+        depth: 12,
+        secondLine: null,
+      },
+    },
   };
 }
 
@@ -85,7 +112,7 @@ describe('parseSavedGames', () => {
   });
 
   it('round-trip serialize → parse preserva a lista', () => {
-    const games = [sampleGame('a'), sampleGame('b')];
+    const games = [{ ...sampleGame('a'), reviewCache: sampleCache() }, sampleGame('b')];
 
     expect(parseSavedGames(serializeSavedGames(games))).toEqual(games);
   });
@@ -116,6 +143,24 @@ describe('addSavedGame', () => {
     expect(list[0]?.savedAt).toBe('2026-07-12T12:00:00.000Z');
   });
 
+  it('regravar após F5 preserva uma revisão já persistida', () => {
+    const review = sampleReview();
+    const original = { ...sampleGame('a'), review };
+
+    const list = addSavedGame([original], sampleGame('a'));
+
+    expect(list[0]?.review).toBe(review);
+  });
+
+  it('regravar após F5 preserva o cache parcial de análise', () => {
+    const reviewCache = sampleCache();
+    const original = { ...sampleGame('a'), reviewCache };
+
+    const list = addSavedGame([original], sampleGame('a'));
+
+    expect(list[0]?.reviewCache).toBe(reviewCache);
+  });
+
   it('descarta a partida mais antiga ao passar do limite', () => {
     const full = Array.from({ length: SAVED_GAMES_LIMIT }, (_, i) => sampleGame(`g${i}`));
 
@@ -139,6 +184,39 @@ describe('removeSavedGame', () => {
     const original = [sampleGame('a')];
 
     expect(removeSavedGame(original, 'x')).toEqual(original);
+  });
+});
+
+describe('setGameReview', () => {
+  it('associa a revisão pelo id preservando os demais campos e partidas', () => {
+    const review = sampleReview();
+    const original = [sampleGame('a'), sampleGame('b')];
+
+    const updated = setGameReview(original, 'a', review);
+
+    expect(updated[0]).toEqual({ ...original[0], review });
+    expect(updated[1]).toBe(original[1]);
+  });
+
+  it('ao finalizar a revisão remove o cache parcial para não duplicar dados', () => {
+    const original = [{ ...sampleGame('a'), reviewCache: sampleCache() }];
+
+    const updated = setGameReview(original, 'a', sampleReview());
+
+    expect(updated[0]?.review).toEqual(sampleReview());
+    expect(updated[0]?.reviewCache).toBeUndefined();
+  });
+});
+
+describe('setGameReviewCache', () => {
+  it('persiste progresso parcial pelo id sem alterar as outras partidas', () => {
+    const original = [sampleGame('a'), sampleGame('b')];
+    const reviewCache = sampleCache();
+
+    const updated = setGameReviewCache(original, 'a', reviewCache);
+
+    expect(updated[0]).toEqual({ ...original[0], reviewCache });
+    expect(updated[1]).toBe(original[1]);
   });
 });
 

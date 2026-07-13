@@ -1,4 +1,5 @@
 import type { Difficulty, PieceColor } from './api.js';
+import { isGameReview, isReviewCache, type GameReview, type ReviewCache } from './gameReview.js';
 
 // Partidas encerradas ficam no navegador, na chave 'zugzwang:games' (a chave
 // 'zugzwang:game' — partida em andamento — é outra coisa e não muda). Cada
@@ -28,6 +29,10 @@ export interface SavedGame {
   /** Posição inicial + posição após cada ply (sans.length + 1 itens). */
   fens: string[];
   pgn: string;
+  /** Resultado persistido da Fase 10; ausente em partidas antigas. */
+  review?: GameReview;
+  /** Progresso parcial da análise, para retomar sem voltar ao zero. */
+  reviewCache?: ReviewCache;
 }
 
 /** Envelope versionado gravado no storage; `v` permite migrar o formato. */
@@ -67,6 +72,8 @@ function isSavedGame(value: unknown): value is SavedGame {
     isStringArray(game.sans) &&
     isStringArray(game.fens) &&
     game.fens.length === game.sans.length + 1 &&
+    (game.review === undefined || isGameReview(game.review)) &&
+    (game.reviewCache === undefined || isReviewCache(game.reviewCache)) &&
     typeof result === 'object' &&
     result !== null &&
     RESULT_KINDS.has(result.kind) &&
@@ -104,7 +111,14 @@ export function serializeSavedGames(games: SavedGame[]): string {
 export function addSavedGame(games: SavedGame[], game: SavedGame): SavedGame[] {
   const existing = games.find((saved) => saved.id === game.id);
   if (existing) {
-    const replacement = { ...game, savedAt: existing.savedAt };
+    const review = game.review ?? existing.review;
+    const reviewCache = review ? undefined : (game.reviewCache ?? existing.reviewCache);
+    const replacement: SavedGame = {
+      ...game,
+      savedAt: existing.savedAt,
+      ...(review ? { review } : {}),
+      ...(reviewCache ? { reviewCache } : {}),
+    };
     return games.map((saved) => (saved.id === game.id ? replacement : saved));
   }
   return [game, ...games].slice(0, SAVED_GAMES_LIMIT);
@@ -112,6 +126,22 @@ export function addSavedGame(games: SavedGame[], game: SavedGame): SavedGame[] {
 
 export function removeSavedGame(games: SavedGame[], id: string): SavedGame[] {
   return games.filter((game) => game.id !== id);
+}
+
+export function setGameReview(games: SavedGame[], id: string, review: GameReview): SavedGame[] {
+  return games.map((game) => {
+    if (game.id !== id) return game;
+    const { reviewCache: _discarded, ...finished } = game;
+    return { ...finished, review };
+  });
+}
+
+export function setGameReviewCache(
+  games: SavedGame[],
+  id: string,
+  reviewCache: ReviewCache,
+): SavedGame[] {
+  return games.map((game) => (game.id === id && !game.review ? { ...game, reviewCache } : game));
 }
 
 export function readSavedGames(storage: GamesStorage): SavedGame[] {

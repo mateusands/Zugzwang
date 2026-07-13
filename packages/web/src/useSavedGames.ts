@@ -3,9 +3,13 @@ import {
   addSavedGame,
   readSavedGames,
   removeSavedGame,
+  setGameReview,
+  setGameReviewCache,
   writeSavedGames,
   type SavedGame,
 } from './savedGames.js';
+import type { GameReview } from './gameReview.js';
+import type { ReviewCache } from './gameReview.js';
 
 /**
  * Estado e ações da lista de partidas salvas (localStorage). A leitura
@@ -37,5 +41,26 @@ export function useSavedGames() {
     writeSavedGames(addSavedGame(readSavedGames(localStorage), saved), localStorage);
   }, []);
 
-  return { savedGames, showList, openList, closeList, deleteGame, saveFinished };
+  const saveReview = useCallback((id: string, review: GameReview) => {
+    const list = setGameReview(readSavedGames(localStorage), id, review);
+    writeSavedGames(list, localStorage);
+    setSavedGames(list);
+  }, []);
+
+  /** Persiste progresso parcial sem re-render a cada posição analisada. */
+  const saveReviewCache = useCallback((id: string, reviewCache: ReviewCache) => {
+    const list = setGameReviewCache(readSavedGames(localStorage), id, reviewCache);
+    writeSavedGames(list, localStorage);
+  }, []);
+
+  return {
+    savedGames,
+    showList,
+    openList,
+    closeList,
+    deleteGame,
+    saveFinished,
+    saveReview,
+    saveReviewCache,
+  };
 }
