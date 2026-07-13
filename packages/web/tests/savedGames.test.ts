@@ -116,6 +116,38 @@ describe('parseSavedGames', () => {
 
     expect(parseSavedGames(serializeSavedGames(games))).toEqual(games);
   });
+
+  it('descarta revisão com contagens nulas ou quantidade de plies divergente', () => {
+    const nullCounts = {
+      ...sampleGame('null-counts'),
+      review: {
+        plies: [],
+        accuracy: { white: 50, black: 50 },
+        counts: { white: null, black: null },
+      },
+    };
+    const wrongLength = { ...sampleGame('wrong-length'), review: sampleReview() };
+
+    expect(parseSavedGames(JSON.stringify({ v: 1, games: [nullCounts, wrongLength] }))).toEqual([]);
+  });
+
+  it('descarta cache cuja segunda linha de avaliação está incompleta', () => {
+    const malformed = sampleGame('bad-cache');
+    const cache = sampleCache();
+    const first = cache.fen0;
+    if (!first) throw new Error('fixture sem cache');
+    const game = {
+      ...malformed,
+      reviewCache: {
+        fen0: {
+          ...first,
+          evaluation: { ...first.evaluation, secondLine: {} },
+        },
+      },
+    };
+
+    expect(parseSavedGames(JSON.stringify({ v: 1, games: [game] }))).toEqual([]);
+  });
 });
 
 describe('addSavedGame', () => {

@@ -42,6 +42,7 @@ const MAX_DEEP_PLIES = 12;
 export interface ReviewEvaluationRequest {
   limit: { movetime: number };
   multiPv: 1 | 2;
+  signal?: AbortSignal;
 }
 
 export type ReviewEvaluator = (
@@ -52,6 +53,11 @@ export type ReviewEvaluator = (
 export interface BuildReviewOptions {
   cache?: ReviewCache;
   onCache?: (cache: ReviewCache) => void;
+  signal?: AbortSignal;
+}
+
+function throwIfReviewAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw new DOMException('game review cancelled', 'AbortError');
 }
 
 export function emptyMoveCounts(): MoveCounts {
@@ -266,6 +272,7 @@ export async function buildGameReview(
   onProgress?: (done: number, total: number, stage: 'quick' | 'deep') => void,
   options: BuildReviewOptions = {},
 ): Promise<GameReview> {
+  throwIfReviewAborted(options.signal);
   const cache: ReviewCache = { ...(options.cache ?? savedGame.reviewCache ?? {}) };
   const evaluations = new Map<number, Evaluation>();
   const bookPlies = bookPlyCount(savedGame.sans);
@@ -283,6 +290,7 @@ export async function buildGameReview(
   onProgress?.(quickDone, quickIndices.length, 'quick');
 
   for (const index of quickIndices) {
+    throwIfReviewAborted(options.signal);
     if (evaluations.has(index)) continue;
     const fen = savedGame.fens[index];
     if (!fen) throw new Error(`FEN ausente na posição ${index + 1}`);
@@ -290,7 +298,12 @@ export async function buildGameReview(
     const repeated = cache[fen];
     const evaluation =
       repeated?.evaluation ??
-      (await evaluate(fen, { limit: { movetime: REVIEW_QUICK_MS }, multiPv: 1 }));
+      (await evaluate(fen, {
+        limit: { movetime: REVIEW_QUICK_MS },
+        multiPv: 1,
+        ...(options.signal ? { signal: options.signal } : {}),
+      }));
+    throwIfReviewAborted(options.signal);
     if (!evaluation) throw new Error(`Stockfish não avaliou a posição ${index + 1}`);
     evaluations.set(index, evaluation);
     if (!repeated) {
@@ -325,12 +338,15 @@ export async function buildGameReview(
   if (deepRequests.size > 0) onProgress?.(deepDone, deepRequests.size, 'deep');
 
   for (const [index, multiPv] of pendingDeep) {
+    throwIfReviewAborted(options.signal);
     const fen = savedGame.fens[index];
     if (!fen) throw new Error(`FEN ausente na posição ${index + 1}`);
     const evaluation = await evaluate(fen, {
       limit: { movetime: REVIEW_DEEP_MS },
       multiPv,
+      ...(options.signal ? { signal: options.signal } : {}),
     });
+    throwIfReviewAborted(options.signal);
     if (!evaluation) throw new Error(`Stockfish não aprofundou a posição ${index + 1}`);
     evaluations.set(index, evaluation);
     const existing = cache[fen];
@@ -342,18 +358,65 @@ export async function buildGameReview(
     onProgress?.(deepDone, deepRequests.size, 'deep');
   }
 
+  throwIfReviewAborted(options.signal);
   return reviewFromEvaluations(savedGame, evaluations, bookPlies);
 }
 
 export function isGameReview(value: unknown): value is GameReview {
   if (typeof value !== 'object' || value === null) return false;
-  const review = value as Partial<GameReview>;
+  const review = value as Record<string, unknown>;
+  const accuracy = review.accuracy;
+  const counts = review.counts;
   return (
     Array.isArray(review.plies) &&
-    typeof review.accuracy?.white === 'number' &&
-    typeof review.accuracy.black === 'number' &&
-    typeof review.counts?.white === 'object' &&
-    typeof review.counts.black === 'object'
+    review.plies.every(isPlyReview) &&
+    isAccuracy(accuracy) &&
+    typeof counts === 'object' &&
+    counts !== null &&
+    isMoveCounts((counts as Record<string, unknown>).white) &&
+    isMoveCounts((counts as Record<string, unknown>).black)
+  );
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isAccuracy(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false;
+  const accuracy = value as Record<string, unknown>;
+  return (
+    isFiniteNumber(accuracy.white) &&
+    accuracy.white >= 0 &&
+    accuracy.white <= 100 &&
+    isFiniteNumber(accuracy.black) &&
+    accuracy.black >= 0 &&
+    accuracy.black <= 100
+  );
+}
+
+function isMoveCounts(value: unknown): value is MoveCounts {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const counts = value as Record<string, unknown>;
+  return MOVE_CLASSES.every(
+    (moveClass) =>
+      Number.isInteger(counts[moveClass]) &&
+      typeof counts[moveClass] === 'number' &&
+      counts[moveClass] >= 0,
+  );
+}
+
+function isPlyReview(value: unknown): value is PlyReview {
+  if (typeof value !== 'object' || value === null) return false;
+  const ply = value as Record<string, unknown>;
+  return (
+    (ply.mover === 'white' || ply.mover === 'black') &&
+    typeof ply.sanPlayed === 'string' &&
+    typeof ply.playedMove === 'string' &&
+    typeof ply.bestMove === 'string' &&
+    MOVE_CLASSES.includes(ply.class as MoveClass) &&
+    isFiniteNumber(ply.winPercentLost) &&
+    ply.winPercentLost >= 0
   );
 }
 
@@ -361,23 +424,31 @@ function isScore(value: unknown): boolean {
   if (typeof value !== 'object' || value === null) return false;
   const score = value as Record<string, unknown>;
   return (
-    (score.type === 'cp' && typeof score.value === 'number') ||
+    (score.type === 'cp' && isFiniteNumber(score.value)) ||
     (score.type === 'mate' &&
-      typeof score.movesToMate === 'number' &&
+      isFiniteNumber(score.movesToMate) &&
       (score.winner === 'white' || score.winner === 'black'))
   );
 }
 
-function isEvaluation(value: unknown): value is Evaluation {
+function isEvaluationLine(value: unknown): boolean {
   if (typeof value !== 'object' || value === null) return false;
   const evaluation = value as Record<string, unknown>;
   return (
     isScore(evaluation.score) &&
-    typeof evaluation.winPercent === 'number' &&
+    isFiniteNumber(evaluation.winPercent) &&
+    evaluation.winPercent >= 0 &&
+    evaluation.winPercent <= 100 &&
     (typeof evaluation.bestMove === 'string' || evaluation.bestMove === null) &&
-    typeof evaluation.depth === 'number' &&
-    (evaluation.secondLine === null || typeof evaluation.secondLine === 'object')
+    isFiniteNumber(evaluation.depth) &&
+    evaluation.depth >= 0
   );
+}
+
+function isEvaluation(value: unknown): value is Evaluation {
+  if (!isEvaluationLine(value)) return false;
+  const evaluation = value as Record<string, unknown>;
+  return evaluation.secondLine === null || isEvaluationLine(evaluation.secondLine);
 }
 
 export function isReviewCache(value: unknown): value is ReviewCache {

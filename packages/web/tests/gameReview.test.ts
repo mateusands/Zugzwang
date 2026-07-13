@@ -168,4 +168,17 @@ describe('buildGameReview', () => {
 
     expect(review.plies[0]?.winPercentLost).toBe(0);
   });
+
+  it('interrompe o lote antes da próxima posição quando o signal é cancelado', async () => {
+    const controller = new AbortController();
+    const evaluate = vi.fn(async () => {
+      controller.abort();
+      return evaluation(50, 'h2h3', 48);
+    });
+
+    await expect(
+      buildGameReview(nonBookGame(), evaluate, undefined, { signal: controller.signal }),
+    ).rejects.toHaveProperty('name', 'AbortError');
+    expect(evaluate).toHaveBeenCalledTimes(1);
+  });
 });

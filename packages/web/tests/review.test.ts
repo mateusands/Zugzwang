@@ -106,6 +106,20 @@ describe('classifyPly', () => {
     ).toBe('great');
   });
 
+  it('calcula Grande comparando as duas linhas da raiz, mesmo se a busca posterior oscilar', () => {
+    expect(
+      classifyPly(
+        input({
+          playedMove: 'e2e4',
+          bestMoveBefore: 'e2e4',
+          winPercentBeforeMover: 40,
+          winPercentAfterMover: 30,
+          secondBestWinPercentBefore: 25,
+        }),
+      ).class,
+    ).toBe('great');
+  });
+
   it('respeita a precedência Livro > Brilhante > Miss > Grande > Melhor', () => {
     const all = input({
       isBookMove: true,

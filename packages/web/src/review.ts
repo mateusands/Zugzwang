@@ -111,7 +111,7 @@ export function classifyPly(input: PlyReviewInput): PlyReview {
   const uniqueMoveGap =
     input.secondBestWinPercentBefore === null
       ? 0
-      : input.winPercentAfterMover - input.secondBestWinPercentBefore;
+      : input.winPercentBeforeMover - input.secondBestWinPercentBefore;
 
   let moveClass: MoveClass;
   if (input.isBookMove) {

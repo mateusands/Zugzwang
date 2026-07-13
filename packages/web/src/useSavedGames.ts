@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   addSavedGame,
   readSavedGames,
@@ -10,6 +10,7 @@ import {
 } from './savedGames.js';
 import type { GameReview } from './gameReview.js';
 import type { ReviewCache } from './gameReview.js';
+import { createReviewCheckpoint, type ReviewCheckpoint } from './reviewCheckpoint.js';
 
 /**
  * Estado e ações da lista de partidas salvas (localStorage). A leitura
@@ -18,8 +19,25 @@ import type { ReviewCache } from './gameReview.js';
 export function useSavedGames() {
   const [savedGames, setSavedGames] = useState<SavedGame[]>([]);
   const [showList, setShowList] = useState(false);
+  const reviewCheckpoint = useRef<ReviewCheckpoint | null>(null);
+  if (!reviewCheckpoint.current) {
+    reviewCheckpoint.current = createReviewCheckpoint((id, reviewCache) => {
+      const list = setGameReviewCache(readSavedGames(localStorage), id, reviewCache);
+      writeSavedGames(list, localStorage);
+    });
+  }
+
+  useEffect(() => {
+    const flush = () => reviewCheckpoint.current?.flush();
+    window.addEventListener('pagehide', flush);
+    return () => {
+      window.removeEventListener('pagehide', flush);
+      flush();
+    };
+  }, []);
 
   const openList = useCallback(() => {
+    reviewCheckpoint.current?.flush();
     setSavedGames(readSavedGames(localStorage));
     setShowList(true);
   }, []);
@@ -29,6 +47,7 @@ export function useSavedGames() {
   // Updater puro: o efeito colateral (gravar) fica fora do setState.
   const deleteGame = useCallback(
     (id: string) => {
+      reviewCheckpoint.current?.flush();
       const list = removeSavedGame(savedGames, id);
       setSavedGames(list);
       writeSavedGames(list, localStorage);
@@ -42,6 +61,7 @@ export function useSavedGames() {
   }, []);
 
   const saveReview = useCallback((id: string, review: GameReview) => {
+    reviewCheckpoint.current?.flush();
     const list = setGameReview(readSavedGames(localStorage), id, review);
     writeSavedGames(list, localStorage);
     setSavedGames(list);
@@ -49,8 +69,7 @@ export function useSavedGames() {
 
   /** Persiste progresso parcial sem re-render a cada posição analisada. */
   const saveReviewCache = useCallback((id: string, reviewCache: ReviewCache) => {
-    const list = setGameReviewCache(readSavedGames(localStorage), id, reviewCache);
-    writeSavedGames(list, localStorage);
+    reviewCheckpoint.current?.schedule(id, reviewCache);
   }, []);
 
   return {

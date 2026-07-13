@@ -72,7 +72,8 @@ function isSavedGame(value: unknown): value is SavedGame {
     isStringArray(game.sans) &&
     isStringArray(game.fens) &&
     game.fens.length === game.sans.length + 1 &&
-    (game.review === undefined || isGameReview(game.review)) &&
+    (game.review === undefined ||
+      (isGameReview(game.review) && game.review.plies.length === game.sans.length)) &&
     (game.reviewCache === undefined || isReviewCache(game.reviewCache)) &&
     typeof result === 'object' &&
     result !== null &&

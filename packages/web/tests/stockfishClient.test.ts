@@ -233,9 +233,40 @@ describe('StockfishClient — avaliação', () => {
     expect(transport.sent).toEqual([]);
     expect(completed?.winPercent).toBe(62.5);
   });
+
+  it('não usa depth 12 para substituir uma busca profunda de 400 ms', async () => {
+    const { transport, client } = await readyClient();
+
+    const shallow = client.evaluate(START_FEN, { limit: { depth: 12 }, multiPv: 2 });
+    transport.emit('info depth 12 multipv 1 score cp 20 pv e2e4');
+    transport.emit('info depth 12 multipv 2 score cp 10 pv d2d4');
+    transport.emit('bestmove e2e4');
+    await shallow;
+
+    transport.sent.length = 0;
+    const deep = client.evaluate(START_FEN, { limit: { movetime: 400 }, multiPv: 2 });
+    expect(transport.sent).toEqual([`position fen ${START_FEN}`, 'go movetime 400']);
+    transport.emit('info depth 16 multipv 1 score cp 30 pv e2e4');
+    transport.emit('info depth 16 multipv 2 score cp 15 pv d2d4');
+    transport.emit('bestmove e2e4');
+    await deep;
+  });
 });
 
 describe('StockfishClient — cancelamento', () => {
+  it('interrompe a busca ativa quando o AbortSignal é cancelado', async () => {
+    const { transport, client } = await readyClient();
+    const controller = new AbortController();
+
+    const promise = client.evaluate(START_FEN, { signal: controller.signal });
+    transport.sent.length = 0;
+    controller.abort();
+
+    expect(transport.sent).toEqual(['stop']);
+    await expect(promise).rejects.toBeInstanceOf(EvaluationCancelledError);
+    transport.emit('bestmove e2e4');
+  });
+
   it('uma nova avaliação para a busca anterior e a rejeita como cancelada', async () => {
     const { transport, client } = await readyClient();
 

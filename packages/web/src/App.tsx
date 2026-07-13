@@ -116,12 +116,15 @@ export function App() {
   }>({ done: 0, total: 0, stage: 'quick' });
   const [endReviewError, setEndReviewError] = useState(false);
   const endReviewRun = useRef(0);
+  const endReviewAbort = useRef<AbortController | null>(null);
   const backgroundFen = useRef<string | null>(null);
   /** Caminho de casas percorrido com o botão direito pressionado. */
   const rightPath = useRef<string[] | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
 
   const startGame = useCallback(async (level: Difficulty) => {
+    endReviewAbort.current?.abort();
+    endReviewAbort.current = null;
     endReviewRun.current += 1;
     setError(null);
     setSelected(null);
@@ -319,6 +322,8 @@ export function App() {
   // botão abra o replay instantaneamente, sem uma segunda análise.
   useEffect(() => {
     if (!finishedSavedGame) return;
+    endReviewAbort.current?.abort();
+    endReviewAbort.current = null;
     const stored = readSavedGames(localStorage).find(
       (savedGame) => savedGame.id === finishedSavedGame.id,
     );
@@ -335,13 +340,18 @@ export function App() {
       : finishedSavedGame;
 
     const run = ++endReviewRun.current;
+    const controller = new AbortController();
+    endReviewAbort.current = controller;
     setEndReview(null);
     setEndReviewing(true);
     setEndReviewError(false);
     setEndReviewProgress({ done: 0, total: finishedSavedGame.fens.length, stage: 'quick' });
     void getSharedEngine()
-      .then((client) =>
-        buildGameReview(
+      .then((client) => {
+        if (controller.signal.aborted) {
+          throw new DOMException('game review cancelled', 'AbortError');
+        }
+        return buildGameReview(
           gameWithCache,
           (position, request) => client.evaluate(position, request),
           (done, total, stage) => {
@@ -349,20 +359,29 @@ export function App() {
           },
           {
             cache: gameWithCache.reviewCache,
-            onCache: (cache) => saveReviewCache(finishedSavedGame.id, cache),
+            onCache: (cache) => {
+              if (!controller.signal.aborted) saveReviewCache(finishedSavedGame.id, cache);
+            },
+            signal: controller.signal,
           },
-        ),
-      )
+        );
+      })
       .then((completed) => {
+        if (controller.signal.aborted || endReviewRun.current !== run) return;
         saveReview(finishedSavedGame.id, completed);
-        if (endReviewRun.current === run) setEndReview(completed);
+        setEndReview(completed);
       })
       .catch(() => {
-        if (endReviewRun.current === run) setEndReviewError(true);
+        if (!controller.signal.aborted && endReviewRun.current === run) setEndReviewError(true);
       })
       .finally(() => {
-        if (endReviewRun.current === run) setEndReviewing(false);
+        if (endReviewAbort.current === controller) endReviewAbort.current = null;
+        if (!controller.signal.aborted && endReviewRun.current === run) setEndReviewing(false);
       });
+    return () => {
+      controller.abort();
+      if (endReviewAbort.current === controller) endReviewAbort.current = null;
+    };
   }, [finishedSavedGame, saveReview, saveReviewCache]);
 
   const startReplay = useCallback(
@@ -520,17 +539,25 @@ export function App() {
     if (!game || over || !evaluation.ready || evaluation.thinking || game.fens.length < 3) return;
     const target = game.fens[game.fens.length - 2];
     if (!target || backgroundFen.current === target) return;
+    const controller = new AbortController();
     const timer = setTimeout(() => {
       backgroundFen.current = target;
       void getSharedEngine()
         .then((client) =>
-          client.evaluate(target, { limit: { movetime: REVIEW_QUICK_MS }, multiPv: 1 }),
+          client.evaluate(target, {
+            limit: { movetime: REVIEW_QUICK_MS },
+            multiPv: 1,
+            signal: controller.signal,
+          }),
         )
         .catch(() => {
           if (backgroundFen.current === target) backgroundFen.current = null;
         });
     }, 300);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
   }, [evaluation.ready, evaluation.thinking, game, over]);
 
   return (
@@ -699,6 +726,8 @@ export function App() {
                     }}
                     onRematch={() => void startGame(difficulty)}
                     onNewBot={() => {
+                      endReviewAbort.current?.abort();
+                      endReviewAbort.current = null;
                       endReviewRun.current += 1;
                       setEndReview(null);
                       setEndReviewing(false);

@@ -84,10 +84,12 @@ export function useEvaluation(fen: string | null, enabled: boolean): UseEvaluati
       return;
     }
     let active = true;
+    const controller = new AbortController();
     const timer = setTimeout(() => {
       setThinking(true);
       client
         .evaluate(fen, {
+          signal: controller.signal,
           onProgress: (partial) => {
             if (active) setEvaluation(partial);
           },
@@ -106,6 +108,7 @@ export function useEvaluation(fen: string | null, enabled: boolean): UseEvaluati
     return () => {
       active = false;
       clearTimeout(timer);
+      controller.abort();
     };
   }, [fen, enabled, ready]);
 

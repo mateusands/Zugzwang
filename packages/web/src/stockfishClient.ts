@@ -52,6 +52,7 @@ export interface EvaluateOptions {
   multiPv?: 1 | 2;
   /** `false` força uma busca nova (usado ao aprofundar uma candidata). */
   useCache?: boolean;
+  signal?: AbortSignal;
 }
 
 interface Request {
@@ -63,6 +64,8 @@ interface Request {
   resolve: (value: Evaluation | null) => void;
   reject: (error: unknown) => void;
   latest: Map<number, InfoEvaluation>;
+  signal: AbortSignal | undefined;
+  onAbort: (() => void) | undefined;
 }
 
 interface CacheEntry {
@@ -72,6 +75,7 @@ interface CacheEntry {
 }
 
 const CACHE_LIMIT = 256;
+const MAX_LIVE_DEPTH_REUSE_MS = 400;
 
 function toEvaluationLine(info: InfoEvaluation, bestMove = info.pv[0] ?? null): EvaluationLine {
   const total = info.wdl ? info.wdl.white + info.wdl.draw + info.wdl.black : 0;
@@ -136,6 +140,7 @@ export class StockfishClient {
   }
 
   evaluate(fen: string, options: EvaluateOptions = {}): Promise<Evaluation | null> {
+    if (options.signal?.aborted) return Promise.reject(new EvaluationCancelledError());
     const limit = options.limit ?? { depth: this.#depth };
     const multiPv = options.multiPv ?? 1;
     if (options.useCache !== false) {
@@ -152,6 +157,8 @@ export class StockfishClient {
         resolve,
         reject,
         latest: new Map(),
+        signal: options.signal,
+        onAbort: undefined,
       };
 
       if (this.#current === null) {
@@ -159,14 +166,19 @@ export class StockfishClient {
       } else if (!this.#currentCancelled) {
         // Cancela a busca corrente e enfileira a nova; a nova só arranca
         // depois que o `bestmove` da cancelada chegar.
-        this.#current.reject(new EvaluationCancelledError());
+        this.#reject(this.#current, new EvaluationCancelledError());
         this.#currentCancelled = true;
         this.#transport.postMessage('stop');
         this.#queued = request;
       } else {
         // Já parando: substitui a que estava na fila.
-        this.#queued?.reject(new EvaluationCancelledError());
+        if (this.#queued) this.#reject(this.#queued, new EvaluationCancelledError());
         this.#queued = request;
+      }
+
+      if (request.signal) {
+        request.onAbort = () => this.#abort(request);
+        request.signal.addEventListener('abort', request.onAbort, { once: true });
       }
     });
   }
@@ -174,9 +186,9 @@ export class StockfishClient {
   dispose(): void {
     this.#transport.terminate();
     if (this.#current && !this.#currentCancelled) {
-      this.#current.reject(new EvaluationCancelledError());
+      this.#reject(this.#current, new EvaluationCancelledError());
     }
-    this.#queued?.reject(new EvaluationCancelledError());
+    if (this.#queued) this.#reject(this.#queued, new EvaluationCancelledError());
     this.#current = null;
     this.#currentCancelled = false;
     this.#queued = null;
@@ -191,6 +203,35 @@ export class StockfishClient {
     }
     this.#transport.postMessage(positionCommand(request.fen));
     this.#transport.postMessage(goCommand(request.limit));
+  }
+
+  #abort(request: Request): void {
+    if (this.#queued === request) {
+      this.#queued = null;
+      this.#reject(request, new EvaluationCancelledError());
+      return;
+    }
+    if (this.#current !== request || this.#currentCancelled) return;
+    this.#reject(request, new EvaluationCancelledError());
+    this.#currentCancelled = true;
+    this.#transport.postMessage('stop');
+  }
+
+  #detachAbort(request: Request): void {
+    if (request.signal && request.onAbort) {
+      request.signal.removeEventListener('abort', request.onAbort);
+      request.onAbort = undefined;
+    }
+  }
+
+  #reject(request: Request, error: unknown): void {
+    this.#detachAbort(request);
+    request.reject(error);
+  }
+
+  #resolve(request: Request, evaluation: Evaluation | null): void {
+    this.#detachAbort(request);
+    request.resolve(evaluation);
   }
 
   #onLine(line: string): void {
@@ -251,7 +292,7 @@ export class StockfishClient {
           )
         : null;
       if (evaluation) this.#remember(finished.fen, evaluation, finished.limit, finished.multiPv);
-      finished.resolve(evaluation);
+      this.#resolve(finished, evaluation);
     }
 
     if (this.#queued) {
@@ -266,8 +307,8 @@ export class StockfishClient {
       this.#initReject?.(error);
       return;
     }
-    if (this.#current && !this.#currentCancelled) this.#current.reject(error);
-    this.#queued?.reject(error);
+    if (this.#current && !this.#currentCancelled) this.#reject(this.#current, error);
+    if (this.#queued) this.#reject(this.#queued, error);
     this.#current = null;
     this.#currentCancelled = false;
     this.#queued = null;
@@ -295,7 +336,9 @@ export class StockfishClient {
     requested: { depth: number } | { movetime: number },
   ): boolean {
     if ('depth' in requested) return 'depth' in cached && cached.depth >= requested.depth;
-    if ('depth' in cached) return cached.depth >= 12;
+    if ('depth' in cached) {
+      return cached.depth >= this.#depth && requested.movetime <= MAX_LIVE_DEPTH_REUSE_MS;
+    }
     return cached.movetime >= requested.movetime;
   }
 
@@ -305,12 +348,14 @@ export class StockfishClient {
     limit: { depth: number } | { movetime: number },
     multiPv: 1 | 2,
   ): void {
+    const achievedLimit = 'depth' in limit ? { depth: evaluation.depth } : limit;
     const entries = this.#cache.get(fen) ?? [];
     const next = [
-      { evaluation, limit, multiPv },
+      { evaluation, limit: achievedLimit, multiPv },
       ...entries.filter(
         (entry) =>
-          entry.multiPv !== multiPv || JSON.stringify(entry.limit) !== JSON.stringify(limit),
+          entry.multiPv !== multiPv ||
+          JSON.stringify(entry.limit) !== JSON.stringify(achievedLimit),
       ),
     ].slice(0, 4);
     this.#cache.delete(fen);
