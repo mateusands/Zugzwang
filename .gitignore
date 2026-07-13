@@ -36,3 +36,6 @@ Thumbs.db
 # Vite
 packages/web/dist/
 packages/web/.vite/
+
+# Binários do Stockfish (copiados de node_modules pelo copy-engine, ~14 MB)
+packages/web/public/engine/

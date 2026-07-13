@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "description": "Zugzwang — a chess game against a bot (portfolio project).",
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "type": "module",
   "engines": {
     "node": ">=20",

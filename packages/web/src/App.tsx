@@ -22,7 +22,9 @@ import { MoveList } from './components/MoveList.js';
 import { ReplayControls } from './components/ReplayControls.js';
 import { ReplayScreen } from './components/ReplayScreen.js';
 import { SavedGamesDialog } from './components/SavedGamesDialog.js';
+import { EvalBar } from './components/EvalBar.js';
 import { useSavedGames } from './useSavedGames.js';
+import { useEvaluation } from './useEvaluation.js';
 import type { SavedGame } from './savedGames.js';
 import {
   createGame,
@@ -97,6 +99,7 @@ export function App() {
   const [pendingPromotion, setPendingPromotion] = useState<PendingPromotion | null>(null);
   const [restoring, setRestoring] = useState(true);
   const [annotations, setAnnotations] = useState<Annotations>(EMPTY_ANNOTATIONS);
+  const [showEval, setShowEval] = useState(true);
   /** Ply exibido ao navegar o histórico; null = no presente (jogo normal). */
   const [viewPly, setViewPly] = useState<number | null>(null);
   const saved = useSavedGames();
@@ -425,6 +428,9 @@ export function App() {
   const displayedPieces = viewedFen ? fenToPieces(viewedFen) : board.pieces;
   const captured = capturedPieces(displayedPieces);
 
+  // Avalia a posição exibida (a do ply navegado, ou a atual da partida).
+  const evaluation = useEvaluation(game ? (viewedFen ?? game.fen) : null, showEval && !!game);
+
   return (
     <main className="app">
       <header className="app__header">
@@ -506,6 +512,14 @@ export function App() {
                 />{' '}
                 Som
               </label>
+              <label className="controls__toggle">
+                <input
+                  type="checkbox"
+                  checked={showEval}
+                  onChange={(event) => setShowEval(event.target.checked)}
+                />{' '}
+                Avaliação
+              </label>
             </div>
 
             <CapturedRow
@@ -514,46 +528,54 @@ export function App() {
               lead={captured.advantage < 0 ? -captured.advantage : 0}
             />
 
-            <div className="board-area">
-              <BoardView
-                boardRef={boardRef}
-                pieces={displayedPieces}
-                selected={selected}
-                targets={selected ? (game.legalTargets[selected] ?? []) : []}
-                movable={playable ? Object.keys(game.legalTargets) : []}
-                onSquarePointerDown={handleSquarePointerDown}
-                onSquareMouseDown={handleSquareMouseDown}
-                onSquareMouseUp={handleSquareMouseUp}
-                onSquareMouseEnter={handleSquareMouseEnter}
-                highlights={annotations.highlights}
-                arrows={annotations.arrows}
-                dragFrom={drag?.from ?? null}
-                animatedMove={viewing ? null : board.animatedMove}
-                animationMs={board.animationMs}
-                moveSeq={board.seq}
-                showHints={showHints}
+            <div className="board-row">
+              <EvalBar
+                evaluation={evaluation.evaluation}
+                thinking={evaluation.thinking}
+                error={evaluation.error}
+                hidden={!showEval}
               />
-
-              {pendingPromotion ? (
-                <PromotionPicker onPick={promote} onCancel={() => setPendingPromotion(null)} />
-              ) : null}
-
-              {confirmResign ? (
-                <ConfirmDialog
-                  text="Tem certeza de que deseja abandonar?"
-                  confirmLabel="Desistir"
-                  onConfirm={resign}
-                  onCancel={() => setConfirmResign(false)}
+              <div className="board-area">
+                <BoardView
+                  boardRef={boardRef}
+                  pieces={displayedPieces}
+                  selected={selected}
+                  targets={selected ? (game.legalTargets[selected] ?? []) : []}
+                  movable={playable ? Object.keys(game.legalTargets) : []}
+                  onSquarePointerDown={handleSquarePointerDown}
+                  onSquareMouseDown={handleSquareMouseDown}
+                  onSquareMouseUp={handleSquareMouseUp}
+                  onSquareMouseEnter={handleSquareMouseEnter}
+                  highlights={annotations.highlights}
+                  arrows={annotations.arrows}
+                  dragFrom={drag?.from ?? null}
+                  animatedMove={viewing ? null : board.animatedMove}
+                  animationMs={board.animationMs}
+                  moveSeq={board.seq}
+                  showHints={showHints}
                 />
-              ) : null}
 
-              {outcome ? (
-                <EndScreen
-                  outcome={outcome}
-                  onRematch={() => void startGame(difficulty)}
-                  onNewBot={() => setGame(null)}
-                />
-              ) : null}
+                {pendingPromotion ? (
+                  <PromotionPicker onPick={promote} onCancel={() => setPendingPromotion(null)} />
+                ) : null}
+
+                {confirmResign ? (
+                  <ConfirmDialog
+                    text="Tem certeza de que deseja abandonar?"
+                    confirmLabel="Desistir"
+                    onConfirm={resign}
+                    onCancel={() => setConfirmResign(false)}
+                  />
+                ) : null}
+
+                {outcome ? (
+                  <EndScreen
+                    outcome={outcome}
+                    onRematch={() => void startGame(difficulty)}
+                    onNewBot={() => setGame(null)}
+                  />
+                ) : null}
+              </div>
             </div>
 
             <CapturedRow
@@ -619,6 +641,18 @@ export function App() {
           {glyph(drag.piece)}
         </div>
       ) : null}
+
+      <footer className="app__footer">
+        Análise por{' '}
+        <a href="https://stockfishchess.org" target="_blank" rel="noreferrer">
+          Stockfish
+        </a>{' '}
+        (
+        <a href="https://github.com/nmrugg/stockfish.js" target="_blank" rel="noreferrer">
+          stockfish.js
+        </a>
+        , GPLv3)
+      </footer>
     </main>
   );
 }

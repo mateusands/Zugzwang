@@ -2,3 +2,6 @@ packages:
   - "packages/*"
 allowBuilds:
   esbuild: true
+  # A postinstall do stockfish só cria um symlink da versão full (~113 MB) que
+  # não usamos — usamos os arquivos "lite" direto de bin/. Ignorar o script.
+  stockfish: false

@@ -5,7 +5,9 @@
   "description": "Zugzwang web client (Vite + React).",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/copy-engine.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/copy-engine.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest run --passWithNoTests",
@@ -20,6 +22,7 @@
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
+    "stockfish": "^18.0.8",
     "typescript": "^5.7.3",
     "vite": "^6.0.7",
     "vitest": "^3.0.5"
