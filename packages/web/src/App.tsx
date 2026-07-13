@@ -20,14 +20,10 @@ import { ConfirmDialog } from './components/ConfirmDialog.js';
 import { EndScreen } from './components/EndScreen.js';
 import { MoveList } from './components/MoveList.js';
 import { ReplayControls } from './components/ReplayControls.js';
+import { ReplayScreen } from './components/ReplayScreen.js';
 import { SavedGamesDialog } from './components/SavedGamesDialog.js';
-import {
-  addSavedGame,
-  readSavedGames,
-  removeSavedGame,
-  writeSavedGames,
-  type SavedGame,
-} from './savedGames.js';
+import { useSavedGames } from './useSavedGames.js';
+import type { SavedGame } from './savedGames.js';
 import {
   createGame,
   getGame,
@@ -78,11 +74,6 @@ function botMoveOf(game: GameState): BotMove | null {
   return 'botMove' in game ? (game as MoveResponse).botMove : null;
 }
 
-// Tabuleiro do replay é só leitura: handlers inertes, estáveis entre renders.
-function noopSquarePointer(_square: string, _event: ReactPointerEvent) {}
-function noopSquareButton(_square: string, _button: number) {}
-function noopSquare(_square: string) {}
-
 export function App() {
   const [difficulty, setDifficulty] = useState<Difficulty>('medium');
   const [game, setGame] = useState<GameState | null>(null);
@@ -108,11 +99,9 @@ export function App() {
   const [annotations, setAnnotations] = useState<Annotations>(EMPTY_ANNOTATIONS);
   /** Ply exibido ao navegar o histórico; null = no presente (jogo normal). */
   const [viewPly, setViewPly] = useState<number | null>(null);
-  const [savedGames, setSavedGames] = useState<SavedGame[]>([]);
-  const [showSavedGames, setShowSavedGames] = useState(false);
+  const saved = useSavedGames();
   /** Partida salva sendo revista; a partida ao vivo (game) fica intocada. */
   const [replayGame, setReplayGame] = useState<SavedGame | null>(null);
-  const [replayPly, setReplayPly] = useState(0);
   /** Caminho de casas percorrido com o botão direito pressionado. */
   const rightPath = useRef<string[] | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
@@ -141,17 +130,17 @@ export function App() {
       setRestoring(false);
       return;
     }
-    let saved: { id: string; difficulty: Difficulty; resigned: boolean };
+    let stored: { id: string; difficulty: Difficulty; resigned: boolean };
     try {
-      saved = JSON.parse(raw) as typeof saved;
+      stored = JSON.parse(raw) as typeof stored;
     } catch {
       setRestoring(false);
       return;
     }
-    getGame(saved.id)
+    getGame(stored.id)
       .then((state) => {
-        setDifficulty(saved.difficulty);
-        setResigned(saved.resigned);
+        setDifficulty(stored.difficulty);
+        setResigned(stored.resigned);
         setGame(state);
         setBoard({
           pieces: state.pieces,
@@ -276,12 +265,13 @@ export function App() {
   const viewing = viewPly !== null;
 
   // Auto-save: partida encerrada (mate/empate/desistência) vai para o
-  // localStorage. Dedupe por id torna o effect idempotente (re-render,
-  // StrictMode, reload de partida já encerrada).
+  // localStorage. Dedupe por id e savedAt estável tornam o effect idempotente
+  // (re-render, StrictMode, reload de partida já encerrada).
+  const { saveFinished } = saved;
   useEffect(() => {
     if (!game || !over) return;
     const outcome = gameOutcome(game.status, game.winner, resigned);
-    const saved: SavedGame = {
+    saveFinished({
       id: game.id,
       savedAt: new Date().toISOString(),
       difficulty,
@@ -290,30 +280,16 @@ export function App() {
       sans: game.history,
       fens: game.fens,
       pgn: game.pgn,
-    };
-    writeSavedGames(addSavedGame(readSavedGames(localStorage), saved), localStorage);
-  }, [game, over, resigned, difficulty]);
+    });
+  }, [game, over, resigned, difficulty, saveFinished]);
 
-  const openSavedGames = useCallback(() => {
-    setSavedGames(readSavedGames(localStorage));
-    setShowSavedGames(true);
-  }, []);
-
-  const startReplay = useCallback((saved: SavedGame) => {
-    setShowSavedGames(false);
-    setSelected(null);
-    setReplayGame(saved);
-    setReplayPly(0);
-  }, []);
-
-  // Updater puro: o efeito colateral (gravar) fica fora do setState.
-  const deleteSavedGame = useCallback(
-    (id: string) => {
-      const list = removeSavedGame(savedGames, id);
-      setSavedGames(list);
-      writeSavedGames(list, localStorage);
+  const startReplay = useCallback(
+    (savedGame: SavedGame) => {
+      saved.closeList();
+      setSelected(null);
+      setReplayGame(savedGame);
     },
-    [savedGames],
+    [saved],
   );
   const playable =
     !!game && !over && !busy && game.turn === 'white' && !pendingPromotion && !viewing;
@@ -339,31 +315,14 @@ export function App() {
     [cancelDrag, plyCount],
   );
 
-  // Teclado: ← → navegam, Home vai ao início, End volta ao presente (na
-  // partida ao vivo) ou à posição final (no replay de uma partida salva).
+  // Teclado da partida ao vivo: ← → navegam, Home vai ao início, End volta
+  // ao presente. (O replay de partida salva tem o próprio teclado, no
+  // ReplayScreen — quando ele está aberto, este effect fica de fora.)
+  const { showList } = saved;
   useEffect(() => {
-    if (!game && !replayGame) return;
+    if (!game || replayGame) return;
     const handler = (event: KeyboardEvent) => {
-      if (pendingPromotion || confirmResign || showSavedGames) return;
-
-      if (replayGame) {
-        const count = replayGame.sans.length;
-        if (event.key === 'ArrowLeft') {
-          event.preventDefault();
-          setReplayPly((ply) => clampPly(ply - 1, count));
-        } else if (event.key === 'ArrowRight') {
-          event.preventDefault();
-          setReplayPly((ply) => clampPly(ply + 1, count));
-        } else if (event.key === 'Home') {
-          event.preventDefault();
-          setReplayPly(0);
-        } else if (event.key === 'End') {
-          event.preventDefault();
-          setReplayPly(count);
-        }
-        return;
-      }
-
+      if (pendingPromotion || confirmResign || showList) return;
       if (event.key === 'ArrowLeft') {
         event.preventDefault();
         stepView(-1);
@@ -380,16 +339,7 @@ export function App() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [
-    game,
-    replayGame,
-    showSavedGames,
-    pendingPromotion,
-    confirmResign,
-    stepView,
-    goToPly,
-    plyCount,
-  ]);
+  }, [game, replayGame, showList, pendingPromotion, confirmResign, stepView, goToPly, plyCount]);
 
   const resign = useCallback(() => {
     setSelected(null);
@@ -468,13 +418,6 @@ export function App() {
 
   const outcome = game && over ? gameOutcome(game.status, game.winner, resigned) : null;
 
-  // Replay de partida salva: tudo derivado do registro, sem engine nem rede.
-  const replayCount = replayGame?.sans.length ?? 0;
-  const replayFen = replayGame?.fens[clampPly(replayPly, replayCount)] ?? null;
-  const replayOutcome = replayGame
-    ? gameOutcome(replayGame.result.status, replayGame.result.winner, replayGame.result.resigned)
-    : null;
-
   // Ao navegar o histórico, o tabuleiro mostra a posição do ply escolhido
   // (derivada do FEN); no presente, o estado otimista/animado de sempre.
   const viewedFen =
@@ -492,54 +435,12 @@ export function App() {
       {restoring ? (
         <p className="status">Carregando…</p>
       ) : replayGame ? (
-        <>
-          <div className="controls">
-            <button type="button" onClick={() => setReplayGame(null)}>
-              Voltar
-            </button>
-            <button type="button" onClick={openSavedGames}>
-              Partidas
-            </button>
-          </div>
-
-          <div className="board-area">
-            <BoardView
-              boardRef={boardRef}
-              pieces={replayFen ? fenToPieces(replayFen) : []}
-              selected={null}
-              targets={[]}
-              movable={[]}
-              onSquarePointerDown={noopSquarePointer}
-              onSquareMouseDown={noopSquareButton}
-              onSquareMouseUp={noopSquareButton}
-              onSquareMouseEnter={noopSquare}
-              highlights={EMPTY_ANNOTATIONS.highlights}
-              arrows={EMPTY_ANNOTATIONS.arrows}
-              dragFrom={null}
-              animatedMove={null}
-              animationMs={PLAYER_SLIDE_MS}
-              moveSeq={0}
-              showHints={false}
-            />
-          </div>
-
-          <ReplayControls
-            ply={replayPly}
-            plyCount={replayCount}
-            onFirst={() => setReplayPly(0)}
-            onPrev={() => setReplayPly((ply) => clampPly(ply - 1, replayCount))}
-            onNext={() => setReplayPly((ply) => clampPly(ply + 1, replayCount))}
-            onLast={() => setReplayPly(replayCount)}
-          />
-
-          <MoveList sans={replayGame.sans} currentPly={replayPly} onSelect={setReplayPly} />
-
-          {replayOutcome ? (
-            <p className="status status--muted">
-              {replayOutcome.title} {replayOutcome.reason} · {replayGame.difficulty}
-            </p>
-          ) : null}
-        </>
+        <ReplayScreen
+          savedGame={replayGame}
+          suspendKeys={saved.showList}
+          onBack={() => setReplayGame(null)}
+          onOpenList={saved.openList}
+        />
       ) : !game ? (
         <div className="start">
           <label>
@@ -562,7 +463,7 @@ export function App() {
           >
             Jogar
           </button>
-          <button type="button" onClick={openSavedGames}>
+          <button type="button" onClick={saved.openList}>
             Partidas
           </button>
         </div>
@@ -579,7 +480,7 @@ export function App() {
             <button type="button" onClick={() => setConfirmResign(true)} disabled={over}>
               Desistir
             </button>
-            <button type="button" onClick={openSavedGames}>
+            <button type="button" onClick={saved.openList}>
               Partidas
             </button>
             <label className="controls__toggle">
@@ -688,12 +589,12 @@ export function App() {
 
       {error ? <p className="error">{error}</p> : null}
 
-      {showSavedGames ? (
+      {saved.showList ? (
         <SavedGamesDialog
-          games={savedGames}
+          games={saved.savedGames}
           onReplay={startReplay}
-          onDelete={deleteSavedGame}
-          onClose={() => setShowSavedGames(false)}
+          onDelete={saved.deleteGame}
+          onClose={saved.closeList}
         />
       ) : null}
 
