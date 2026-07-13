@@ -9,10 +9,17 @@ import {
 } from './board.js';
 import { arrowPolyline, type Arrow } from './annotations.js';
 import type { Piece } from './api.js';
+import type { MoveClass } from './review.js';
 
 export interface AnimatedMove {
   from: string;
   to: string;
+}
+
+export interface MoveFeedback extends AnimatedMove {
+  moveClass: MoveClass;
+  icon: string;
+  label: string;
 }
 
 interface BoardViewProps {
@@ -38,6 +45,8 @@ interface BoardViewProps {
   animationMs: number;
   /** Bumps every move, so the sliding piece remounts and re-animates. */
   moveSeq: number;
+  /** Cor e marcador da classificação do lance mostrado na revisão. */
+  moveFeedback?: MoveFeedback | null;
   /** Whether to draw the legal-move hints (dots / capture rings). */
   showHints: boolean;
 }
@@ -58,6 +67,7 @@ export function BoardView({
   animatedMove,
   animationMs,
   moveSeq,
+  moveFeedback = null,
   showHints,
 }: BoardViewProps) {
   const bySquare = pieceMap(pieces);
@@ -80,6 +90,9 @@ export function BoardView({
           highlightSet.has(square) ? 'square--annotated' : '',
           animatedMove && (animatedMove.from === square || animatedMove.to === square)
             ? 'square--lastmove'
+            : '',
+          moveFeedback && (moveFeedback.from === square || moveFeedback.to === square)
+            ? `square--review-${moveFeedback.moveClass}`
             : '',
         ]
           .filter(Boolean)
@@ -124,6 +137,14 @@ export function BoardView({
                 {glyph(piece)}
               </span>
             ) : null}
+            {moveFeedback?.to === square ? (
+              <span
+                className={`square__review-marker square__review-marker--${moveFeedback.moveClass}`}
+                aria-label={moveFeedback.label}
+              >
+                {moveFeedback.icon}
+              </span>
+            ) : null}
           </button>
         );
       })}
@@ -131,7 +152,7 @@ export function BoardView({
       <svg className="arrows" viewBox="0 0 8 8" preserveAspectRatio="none" aria-hidden="true">
         <defs>
           <marker
-            id="arrowhead"
+            id="arrowhead-annotation"
             markerUnits="userSpaceOnUse"
             markerWidth="0.7"
             markerHeight="0.7"
@@ -141,21 +162,34 @@ export function BoardView({
           >
             <path d="M0.05,0.05 L0.65,0.35 L0.05,0.65 Z" fill="rgba(255,150,0,0.85)" />
           </marker>
+          <marker
+            id="arrowhead-best"
+            markerUnits="userSpaceOnUse"
+            markerWidth="0.7"
+            markerHeight="0.7"
+            refX="0.55"
+            refY="0.35"
+            orient="auto"
+          >
+            <path d="M0.05,0.05 L0.65,0.35 L0.05,0.65 Z" fill="rgba(129,182,76,0.95)" />
+          </marker>
         </defs>
         {arrows.map((arrow) => {
+          const tone = arrow.tone ?? 'annotation';
           const points = arrowPolyline(arrow.path)
             .map((point) => `${point.x},${point.y}`)
             .join(' ');
           return (
             <polyline
-              key={arrow.path.join('-')}
+              key={`${tone}-${arrow.path.join('-')}`}
+              className={`arrow arrow--${tone}`}
               points={points}
               fill="none"
-              stroke="rgba(255,150,0,0.85)"
+              stroke={tone === 'best' ? 'rgba(129,182,76,0.95)' : 'rgba(255,150,0,0.85)'}
               strokeWidth={0.16}
               strokeLinecap="round"
               strokeLinejoin="round"
-              markerEnd="url(#arrowhead)"
+              markerEnd={`url(#arrowhead-${tone})`}
             />
           );
         })}

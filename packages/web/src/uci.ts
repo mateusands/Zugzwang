@@ -17,7 +17,11 @@ export type Score =
 
 export interface InfoEvaluation {
   depth: number;
+  /** Índice da linha MultiPV; 1 quando o motor não informa explicitamente. */
+  multiPv: number;
   score: Score;
+  /** WDL normalizado para cores absolutas (permille), quando o motor envia. */
+  wdl?: { white: number; draw: number; black: number };
   /** Linha principal em lances UCI; pv[0] é o melhor lance. */
   pv: string[];
 }
@@ -33,7 +37,7 @@ function opponent(color: EngineColor): EngineColor {
 
 /**
  * Parse a linha `info …` do Stockfish. Devolve null quando a linha não traz
- * uma avaliação utilizável: sem score/depth, multipv secundário, ou score de
+ * uma avaliação utilizável: sem score/depth ou score de
  * limite de janela (lowerbound/upperbound). `turn` é o lado a mover da
  * posição buscada — o resultado sai normalizado para as brancas.
  */
@@ -43,15 +47,17 @@ export function parseInfoLine(line: string, turn: EngineColor): InfoEvaluation |
   if (tokens.includes('lowerbound') || tokens.includes('upperbound')) return null;
 
   let depth: number | null = null;
+  let multiPv = 1;
   let score: Score | null = null;
+  let wdl: InfoEvaluation['wdl'];
   let pv: string[] = [];
 
   for (let i = 1; i < tokens.length; i += 1) {
     const token = tokens[i];
     if (token === 'depth') {
       depth = Number(tokens[i + 1]);
-    } else if (token === 'multipv' && Number(tokens[i + 1]) !== 1) {
-      return null;
+    } else if (token === 'multipv') {
+      multiPv = Number(tokens[i + 1]);
     } else if (token === 'score') {
       const kind = tokens[i + 1];
       const raw = Number(tokens[i + 2]);
@@ -66,14 +72,29 @@ export function parseInfoLine(line: string, turn: EngineColor): InfoEvaluation |
       } else {
         return null;
       }
+    } else if (token === 'wdl') {
+      const win = Number(tokens[i + 1]);
+      const draw = Number(tokens[i + 2]);
+      const loss = Number(tokens[i + 3]);
+      if (![win, draw, loss].every(Number.isFinite)) return null;
+      wdl =
+        turn === 'white' ? { white: win, draw, black: loss } : { white: loss, draw, black: win };
     } else if (token === 'pv') {
       pv = tokens.slice(i + 1);
       break; // pv é sempre o último campo
     }
   }
 
-  if (depth === null || !Number.isFinite(depth) || score === null) return null;
-  return { depth, score, pv };
+  if (
+    depth === null ||
+    !Number.isFinite(depth) ||
+    !Number.isInteger(multiPv) ||
+    multiPv < 1 ||
+    score === null
+  ) {
+    return null;
+  }
+  return { depth, multiPv, score, ...(wdl ? { wdl } : {}), pv };
 }
 
 /**

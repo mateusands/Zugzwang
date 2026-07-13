@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { BoardView, type AnimatedMove } from './BoardView.js';
 import { applyLocalMove, glyph } from './board.js';
@@ -24,8 +24,9 @@ import { ReplayScreen } from './components/ReplayScreen.js';
 import { SavedGamesDialog } from './components/SavedGamesDialog.js';
 import { EvalBar } from './components/EvalBar.js';
 import { useSavedGames } from './useSavedGames.js';
-import { useEvaluation } from './useEvaluation.js';
-import type { SavedGame } from './savedGames.js';
+import { getSharedEngine, useEvaluation } from './useEvaluation.js';
+import { readSavedGames, type SavedGame } from './savedGames.js';
+import { REVIEW_QUICK_MS, buildGameReview, type GameReview } from './gameReview.js';
 import {
   createGame,
   getGame,
@@ -105,16 +106,38 @@ export function App() {
   const saved = useSavedGames();
   /** Partida salva sendo revista; a partida ao vivo (game) fica intocada. */
   const [replayGame, setReplayGame] = useState<SavedGame | null>(null);
+  const [replayStartsInReview, setReplayStartsInReview] = useState(false);
+  const [endReview, setEndReview] = useState<GameReview | null>(null);
+  const [endReviewing, setEndReviewing] = useState(false);
+  const [endReviewProgress, setEndReviewProgress] = useState<{
+    done: number;
+    total: number;
+    stage: 'quick' | 'deep';
+  }>({ done: 0, total: 0, stage: 'quick' });
+  const [endReviewError, setEndReviewError] = useState(false);
+  const endReviewRun = useRef(0);
+  const endReviewAbort = useRef<AbortController | null>(null);
+  const backgroundFen = useRef<string | null>(null);
   /** Caminho de casas percorrido com o botão direito pressionado. */
   const rightPath = useRef<string[] | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
 
   const startGame = useCallback(async (level: Difficulty) => {
+    endReviewAbort.current?.abort();
+    endReviewAbort.current = null;
+    endReviewRun.current += 1;
     setError(null);
     setSelected(null);
     setResigned(false);
     setAnnotations(EMPTY_ANNOTATIONS);
     setViewPly(null);
+    setEndReview(null);
+    setEndReviewing(false);
+    setEndReviewError(false);
+    setEndReviewProgress({ done: 0, total: 0, stage: 'quick' });
+    backgroundFen.current = null;
+    setReplayGame(null);
+    setReplayStartsInReview(false);
     setGame(null);
     try {
       const state = await createGame(level);
@@ -267,29 +290,105 @@ export function App() {
   const over = !!game && (game.gameOver || resigned);
   const viewing = viewPly !== null;
 
-  // Auto-save: partida encerrada (mate/empate/desistência) vai para o
-  // localStorage. Dedupe por id e savedAt estável tornam o effect idempotente
-  // (re-render, StrictMode, reload de partida já encerrada).
-  const { saveFinished } = saved;
-  useEffect(() => {
-    if (!game || !over) return;
-    const outcome = gameOutcome(game.status, game.winner, resigned);
-    saveFinished({
+  const finishedSavedGame = useMemo<SavedGame | null>(() => {
+    if (!game || !over) return null;
+    const finishedOutcome = gameOutcome(game.status, game.winner, resigned);
+    return {
       id: game.id,
       savedAt: new Date().toISOString(),
       difficulty,
       playerColor: 'white',
-      result: { kind: outcome.kind, status: game.status, winner: game.winner, resigned },
+      result: {
+        kind: finishedOutcome.kind,
+        status: game.status,
+        winner: game.winner,
+        resigned,
+      },
       sans: game.history,
       fens: game.fens,
       pgn: game.pgn,
-    });
-  }, [game, over, resigned, difficulty, saveFinished]);
+    };
+  }, [difficulty, game, over, resigned]);
+
+  // Auto-save: partida encerrada (mate/empate/desistência) vai para o
+  // localStorage. Dedupe por id e savedAt estável tornam o effect idempotente
+  // (re-render, StrictMode, reload de partida já encerrada).
+  const { saveFinished, saveReview, saveReviewCache } = saved;
+  useEffect(() => {
+    if (finishedSavedGame) saveFinished(finishedSavedGame);
+  }, [finishedSavedGame, saveFinished]);
+
+  // A tela de fim já prepara a revisão para mostrar o top 3 e para que o
+  // botão abra o replay instantaneamente, sem uma segunda análise.
+  useEffect(() => {
+    if (!finishedSavedGame) return;
+    endReviewAbort.current?.abort();
+    endReviewAbort.current = null;
+    const stored = readSavedGames(localStorage).find(
+      (savedGame) => savedGame.id === finishedSavedGame.id,
+    );
+    if (stored?.review) {
+      endReviewRun.current += 1;
+      setEndReview(stored.review);
+      setEndReviewing(false);
+      setEndReviewError(false);
+      return;
+    }
+
+    const gameWithCache: SavedGame = stored?.reviewCache
+      ? { ...finishedSavedGame, reviewCache: stored.reviewCache }
+      : finishedSavedGame;
+
+    const run = ++endReviewRun.current;
+    const controller = new AbortController();
+    endReviewAbort.current = controller;
+    setEndReview(null);
+    setEndReviewing(true);
+    setEndReviewError(false);
+    setEndReviewProgress({ done: 0, total: finishedSavedGame.fens.length, stage: 'quick' });
+    void getSharedEngine()
+      .then((client) => {
+        if (controller.signal.aborted) {
+          throw new DOMException('game review cancelled', 'AbortError');
+        }
+        return buildGameReview(
+          gameWithCache,
+          (position, request) => client.evaluate(position, request),
+          (done, total, stage) => {
+            if (endReviewRun.current === run) setEndReviewProgress({ done, total, stage });
+          },
+          {
+            cache: gameWithCache.reviewCache,
+            onCache: (cache) => {
+              if (!controller.signal.aborted) saveReviewCache(finishedSavedGame.id, cache);
+            },
+            signal: controller.signal,
+          },
+        );
+      })
+      .then((completed) => {
+        if (controller.signal.aborted || endReviewRun.current !== run) return;
+        saveReview(finishedSavedGame.id, completed);
+        setEndReview(completed);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted && endReviewRun.current === run) setEndReviewError(true);
+      })
+      .finally(() => {
+        if (endReviewAbort.current === controller) endReviewAbort.current = null;
+        if (!controller.signal.aborted && endReviewRun.current === run) setEndReviewing(false);
+      });
+    return () => {
+      controller.abort();
+      if (endReviewAbort.current === controller) endReviewAbort.current = null;
+    };
+  }, [finishedSavedGame, saveReview, saveReviewCache]);
 
   const startReplay = useCallback(
-    (savedGame: SavedGame) => {
+    (savedGame: SavedGame, startInReview = false) => {
       saved.closeList();
       setSelected(null);
+      setReplayStartsInReview(startInReview);
       setReplayGame(savedGame);
     },
     [saved],
@@ -429,7 +528,37 @@ export function App() {
   const captured = capturedPieces(displayedPieces);
 
   // Avalia a posição exibida (a do ply navegado, ou a atual da partida).
-  const evaluation = useEvaluation(game ? (viewedFen ?? game.fen) : null, showEval && !!game);
+  const evaluation = useEvaluation(
+    game ? (viewedFen ?? game.fen) : null,
+    showEval && !!game && !endReviewing,
+  );
+
+  // Quando a avaliação visível termina, usa o tempo ocioso para preparar a
+  // posição intermediária (após o lance humano) que a UI normalmente não exibe.
+  useEffect(() => {
+    if (!game || over || !evaluation.ready || evaluation.thinking || game.fens.length < 3) return;
+    const target = game.fens[game.fens.length - 2];
+    if (!target || backgroundFen.current === target) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      backgroundFen.current = target;
+      void getSharedEngine()
+        .then((client) =>
+          client.evaluate(target, {
+            limit: { movetime: REVIEW_QUICK_MS },
+            multiPv: 1,
+            signal: controller.signal,
+          }),
+        )
+        .catch(() => {
+          if (backgroundFen.current === target) backgroundFen.current = null;
+        });
+    }, 300);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [evaluation.ready, evaluation.thinking, game, over]);
 
   return (
     <main className="app">
@@ -443,9 +572,15 @@ export function App() {
       ) : replayGame ? (
         <ReplayScreen
           savedGame={replayGame}
+          startInReview={replayStartsInReview}
           suspendKeys={saved.showList}
-          onBack={() => setReplayGame(null)}
+          onBack={() => {
+            setReplayGame(null);
+            setReplayStartsInReview(false);
+          }}
           onOpenList={saved.openList}
+          onSaveReview={saved.saveReview}
+          onSaveReviewCache={saved.saveReviewCache}
         />
       ) : !game ? (
         <div className="start">
@@ -571,8 +706,34 @@ export function App() {
                 {outcome ? (
                   <EndScreen
                     outcome={outcome}
+                    review={endReview}
+                    reviewing={endReviewing}
+                    reviewProgress={endReviewProgress}
+                    reviewStage={endReviewProgress.stage}
+                    reviewError={endReviewError}
+                    onReview={() => {
+                      if (!finishedSavedGame) return;
+                      const storedGame = readSavedGames(localStorage).find(
+                        (savedGame) => savedGame.id === finishedSavedGame.id,
+                      );
+                      const replaySource = storedGame?.reviewCache
+                        ? { ...finishedSavedGame, reviewCache: storedGame.reviewCache }
+                        : finishedSavedGame;
+                      startReplay(
+                        endReview ? { ...replaySource, review: endReview } : replaySource,
+                        true,
+                      );
+                    }}
                     onRematch={() => void startGame(difficulty)}
-                    onNewBot={() => setGame(null)}
+                    onNewBot={() => {
+                      endReviewAbort.current?.abort();
+                      endReviewAbort.current = null;
+                      endReviewRun.current += 1;
+                      setEndReview(null);
+                      setEndReviewing(false);
+                      setEndReviewError(false);
+                      setGame(null);
+                    }}
                   />
                 ) : null}
               </div>

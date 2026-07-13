@@ -3,6 +3,8 @@ import { FILES } from './board.js';
 /** Uma seta desenhada pelo usuário: o caminho de casas percorrido pelo mouse. */
 export interface Arrow {
   path: string[];
+  /** Setas do usuário usam annotation; sugestões do motor usam best. */
+  tone?: 'annotation' | 'best';
 }
 
 export interface Annotations {

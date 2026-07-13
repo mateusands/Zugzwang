@@ -70,6 +70,9 @@ describe('StockfishClient — handshake', () => {
     expect(transport.sent).toContain('uci');
 
     transport.emit('uciok');
+    expect(transport.sent).toContain('setoption name MultiPV value 1');
+    expect(transport.sent).toContain('setoption name Hash value 64');
+    expect(transport.sent).toContain('setoption name UCI_ShowWDL value true');
     transport.emit('readyok');
     await expect(init).resolves.toBeUndefined();
 
@@ -120,6 +123,7 @@ describe('StockfishClient — avaliação', () => {
       winPercent: expect.any(Number),
       bestMove: 'e2e4',
       depth: 12,
+      secondLine: null,
     });
     expect(onProgress).toHaveBeenCalledTimes(2);
   });
@@ -157,9 +161,112 @@ describe('StockfishClient — avaliação', () => {
     await promise;
     expect(onProgress).toHaveBeenCalledTimes(1);
   });
+
+  it('mantém as linhas MultiPV 1 e 2 separadas quando chegam intercaladas', async () => {
+    const { transport, client } = await readyClient();
+
+    const promise = client.evaluate(START_FEN, { multiPv: 2 });
+    expect(transport.sent[0]).toBe('setoption name MultiPV value 2');
+    transport.emit('info depth 8 multipv 2 score cp 10 pv d2d4 d7d5');
+    transport.emit('info depth 8 multipv 1 score cp 25 pv e2e4 e7e5');
+    transport.emit('info depth 12 multipv 2 score cp 15 pv g1f3 d7d5');
+    transport.emit('info depth 12 multipv 1 score cp 35 pv e2e4 e7e5');
+    transport.emit('bestmove e2e4');
+
+    expect(await promise).toMatchObject({
+      bestMove: 'e2e4',
+      depth: 12,
+      secondLine: {
+        score: { type: 'cp', value: 15 },
+        bestMove: 'g1f3',
+        depth: 12,
+      },
+    });
+  });
+
+  it('aceita orçamento por tempo e volta a MultiPV 1 em buscas comuns', async () => {
+    const { transport, client } = await readyClient();
+
+    const deep = client.evaluate(START_FEN, {
+      limit: { movetime: 400 },
+      multiPv: 2,
+      useCache: false,
+    });
+    expect(transport.sent).toEqual([
+      'setoption name MultiPV value 2',
+      `position fen ${START_FEN}`,
+      'go movetime 400',
+    ]);
+    transport.emit('info depth 12 multipv 1 score cp 20 pv e2e4');
+    transport.emit('info depth 12 multipv 2 score cp 10 pv d2d4');
+    transport.emit('bestmove e2e4');
+    await deep;
+
+    transport.sent.length = 0;
+    const quick = client.evaluate(BLACK_FEN, {
+      limit: { movetime: 120 },
+      multiPv: 1,
+      useCache: false,
+    });
+    expect(transport.sent).toEqual([
+      'setoption name MultiPV value 1',
+      `position fen ${BLACK_FEN}`,
+      'go movetime 120',
+    ]);
+    transport.emit('info depth 9 multipv 1 score cp 5 pv e7e5');
+    transport.emit('bestmove e7e5');
+    await quick;
+  });
+
+  it('reutiliza uma avaliação forte em memória sem mandar nova busca ao Worker', async () => {
+    const { transport, client } = await readyClient();
+
+    const first = client.evaluate(START_FEN);
+    transport.emit('info depth 18 multipv 1 score cp 25 wdl 450 350 200 pv e2e4');
+    transport.emit('bestmove e2e4');
+    const completed = await first;
+
+    transport.sent.length = 0;
+    await expect(
+      client.evaluate(START_FEN, { limit: { movetime: 120 }, multiPv: 1 }),
+    ).resolves.toEqual(completed);
+    expect(transport.sent).toEqual([]);
+    expect(completed?.winPercent).toBe(62.5);
+  });
+
+  it('não usa depth 12 para substituir uma busca profunda de 400 ms', async () => {
+    const { transport, client } = await readyClient();
+
+    const shallow = client.evaluate(START_FEN, { limit: { depth: 12 }, multiPv: 2 });
+    transport.emit('info depth 12 multipv 1 score cp 20 pv e2e4');
+    transport.emit('info depth 12 multipv 2 score cp 10 pv d2d4');
+    transport.emit('bestmove e2e4');
+    await shallow;
+
+    transport.sent.length = 0;
+    const deep = client.evaluate(START_FEN, { limit: { movetime: 400 }, multiPv: 2 });
+    expect(transport.sent).toEqual([`position fen ${START_FEN}`, 'go movetime 400']);
+    transport.emit('info depth 16 multipv 1 score cp 30 pv e2e4');
+    transport.emit('info depth 16 multipv 2 score cp 15 pv d2d4');
+    transport.emit('bestmove e2e4');
+    await deep;
+  });
 });
 
 describe('StockfishClient — cancelamento', () => {
+  it('interrompe a busca ativa quando o AbortSignal é cancelado', async () => {
+    const { transport, client } = await readyClient();
+    const controller = new AbortController();
+
+    const promise = client.evaluate(START_FEN, { signal: controller.signal });
+    transport.sent.length = 0;
+    controller.abort();
+
+    expect(transport.sent).toEqual(['stop']);
+    await expect(promise).rejects.toBeInstanceOf(EvaluationCancelledError);
+    transport.emit('bestmove e2e4');
+  });
+
   it('uma nova avaliação para a busca anterior e a rejeita como cancelada', async () => {
     const { transport, client } = await readyClient();
 
