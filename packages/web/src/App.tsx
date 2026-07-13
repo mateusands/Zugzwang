@@ -306,13 +306,15 @@ export function App() {
     setReplayPly(0);
   }, []);
 
-  const deleteSavedGame = useCallback((id: string) => {
-    setSavedGames((current) => {
-      const list = removeSavedGame(current, id);
+  // Updater puro: o efeito colateral (gravar) fica fora do setState.
+  const deleteSavedGame = useCallback(
+    (id: string) => {
+      const list = removeSavedGame(savedGames, id);
+      setSavedGames(list);
       writeSavedGames(list, localStorage);
-      return list;
-    });
-  }, []);
+    },
+    [savedGames],
+  );
   const playable =
     !!game && !over && !busy && game.turn === 'white' && !pendingPromotion && !viewing;
   const plyCount = game?.history.length ?? 0;

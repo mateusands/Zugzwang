@@ -54,6 +54,8 @@ body {
 .dialog button,
 .endscreen__actions button,
 .replay-controls button,
+.saved-games__actions button,
+.saved-games__delete,
 .promotion__piece {
   font: inherit;
   font-weight: 600;
@@ -74,6 +76,7 @@ body {
 .dialog button:hover:not(:disabled),
 .endscreen__actions button:hover:not(:disabled),
 .replay-controls button:hover:not(:disabled),
+.saved-games__actions button:hover:not(:disabled),
 .promotion__piece:hover:not(:disabled) {
   background: #474751;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
@@ -490,7 +493,8 @@ select {
   font-weight: 700;
 }
 
-/* Lista de partidas salvas (overlay). */
+/* Lista de partidas salvas (overlay). O visual base dos botões (Fechar,
+   apagar) vem do grupo compartilhado de botões de UI, no topo do arquivo. */
 .saved-games {
   display: flex;
   flex-direction: column;
@@ -572,15 +576,9 @@ select {
 
 .saved-games__delete {
   padding: 0 0.7rem;
-  border-radius: 8px;
-  border: 1px solid #45454f;
-  background: #3a3a43;
-  color: #f0f0f2;
-  font: inherit;
-  cursor: pointer;
 }
 
-.saved-games__delete:hover {
+.saved-games__delete:hover:not(:disabled) {
   background: #5a3038;
   border-color: #a93226;
 }
@@ -588,19 +586,4 @@ select {
 .saved-games__actions {
   display: flex;
   justify-content: flex-end;
-}
-
-.saved-games__actions button {
-  font: inherit;
-  font-weight: 600;
-  padding: 0.5rem 1.1rem;
-  border-radius: 8px;
-  border: 1px solid #45454f;
-  background: #3a3a43;
-  color: #f0f0f2;
-  cursor: pointer;
-}
-
-.saved-games__actions button:hover {
-  background: #474751;
 }

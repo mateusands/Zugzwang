@@ -67,6 +67,23 @@ describe('parseSavedGames', () => {
     expect(parseSavedGames(raw)).toEqual([valid]);
   });
 
+  it('filtra entradas com dificuldade ou resultado fora dos valores conhecidos', () => {
+    const tamperedDifficulty = { ...sampleGame('a'), difficulty: 'impossible' };
+    const tamperedKind = {
+      ...sampleGame('b'),
+      result: { ...sampleGame('b').result, kind: 'weird' },
+    };
+    const raw = JSON.stringify({ v: 1, games: [tamperedDifficulty, tamperedKind] });
+
+    expect(parseSavedGames(raw)).toEqual([]);
+  });
+
+  it('filtra entradas que quebram o invariante fens = sans + 1', () => {
+    const truncated = { ...sampleGame('a'), fens: ['fen0', 'fen1'] }; // sans tem 2 lances
+
+    expect(parseSavedGames(JSON.stringify({ v: 1, games: [truncated] }))).toEqual([]);
+  });
+
   it('round-trip serialize → parse preserva a lista', () => {
     const games = [sampleGame('a'), sampleGame('b')];
 
@@ -86,6 +103,17 @@ describe('addSavedGame', () => {
 
     expect(list.map((game) => game.id)).toEqual(['a', 'b']);
     expect(list).toHaveLength(2);
+  });
+
+  it('regravar uma partida preserva o savedAt original (reload não muda a data)', () => {
+    // Dado uma partida salva no fim do jogo
+    const original = sampleGame('a', '2026-07-12T12:00:00.000Z');
+    // Quando o auto-save roda de novo (F5 com a partida encerrada restaurada)
+    const resaved = sampleGame('a', '2026-07-13T09:30:00.000Z');
+    const list = addSavedGame([original], resaved);
+
+    // Então a data de término registrada não muda
+    expect(list[0]?.savedAt).toBe('2026-07-12T12:00:00.000Z');
   });
 
   it('descarta a partida mais antiga ao passar do limite', () => {

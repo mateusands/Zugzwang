@@ -50,6 +50,10 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === 'string');
 }
 
+// Uniões validadas por valor (não só por typeof): storage é input externo.
+const RESULT_KINDS: ReadonlySet<unknown> = new Set(['win', 'loss', 'draw']);
+const DIFFICULTIES: ReadonlySet<unknown> = new Set(['easy', 'medium', 'hard']);
+
 function isSavedGame(value: unknown): value is SavedGame {
   if (typeof value !== 'object' || value === null) return false;
   const game = value as Record<string, unknown>;
@@ -57,14 +61,15 @@ function isSavedGame(value: unknown): value is SavedGame {
   return (
     typeof game.id === 'string' &&
     typeof game.savedAt === 'string' &&
-    typeof game.difficulty === 'string' &&
+    DIFFICULTIES.has(game.difficulty) &&
     typeof game.playerColor === 'string' &&
     typeof game.pgn === 'string' &&
     isStringArray(game.sans) &&
     isStringArray(game.fens) &&
+    game.fens.length === game.sans.length + 1 &&
     typeof result === 'object' &&
     result !== null &&
-    typeof result.kind === 'string' &&
+    RESULT_KINDS.has(result.kind) &&
     typeof result.status === 'string'
   );
 }
@@ -92,13 +97,15 @@ export function serializeSavedGames(games: SavedGame[]): string {
 
 /**
  * Prepend a game to the list. A game with the same id replaces the stored
- * one in place (keeps the auto-save idempotent); beyond the limit, the
- * oldest games are dropped.
+ * one in place, keeping the original savedAt (a finished game is immutable —
+ * re-saving on reload must not shift its date); beyond the limit, the oldest
+ * games are dropped.
  */
 export function addSavedGame(games: SavedGame[], game: SavedGame): SavedGame[] {
-  const existing = games.findIndex((saved) => saved.id === game.id);
-  if (existing >= 0) {
-    return games.map((saved, index) => (index === existing ? game : saved));
+  const existing = games.find((saved) => saved.id === game.id);
+  if (existing) {
+    const replacement = { ...game, savedAt: existing.savedAt };
+    return games.map((saved) => (saved.id === game.id ? replacement : saved));
   }
   return [game, ...games].slice(0, SAVED_GAMES_LIMIT);
 }
