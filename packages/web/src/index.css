@@ -43,6 +43,8 @@ body {
 
 .controls {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: 1rem;
   align-items: center;
 }
@@ -296,7 +298,8 @@ select {
 }
 
 .endscreen__card {
-  min-width: 260px;
+  width: min(88%, 360px);
+  min-width: 280px;
   padding: 1.5rem;
   border-radius: 10px;
   background: #26262b;
@@ -322,14 +325,113 @@ select {
 }
 
 .endscreen__reason {
-  margin: 0 0 1.25rem;
+  margin: 0 0 1rem;
   color: #a0a0a8;
+}
+
+.endscreen__summary {
+  min-height: 3.4rem;
+  margin-bottom: 1rem;
+}
+
+.endscreen__progress {
+  margin: 0;
+  padding: 0.75rem;
+  border-radius: 8px;
+  background: #1d1d21;
+  color: #c8c8ce;
+  font-size: 0.85rem;
+}
+
+.endscreen__progress--error {
+  color: #ff9c94;
+}
+
+.endscreen__top {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.endscreen__top-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  min-width: 0;
+  padding: 0.55rem 0.25rem;
+  border-radius: 8px;
+  background: #1d1d21;
+  color: #c8c8ce;
+  font-size: 0.7rem;
+}
+
+.endscreen__top-item strong {
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.endscreen__top-icon {
+  display: grid;
+  place-items: center;
+  width: 1.65rem;
+  height: 1.65rem;
+  border-radius: 50%;
+  background: #45454f;
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.endscreen__top-item--brilliant,
+.endscreen__top-item--great {
+  color: #3fc7c2;
+}
+
+.endscreen__top-item--best,
+.endscreen__top-item--excellent,
+.endscreen__top-item--good {
+  color: #81b64c;
+}
+
+.endscreen__top-item--book {
+  color: #d9a56f;
+}
+
+.endscreen__top-item--inaccuracy {
+  color: #f0c15a;
+}
+
+.endscreen__top-item--mistake,
+.endscreen__top-item--miss {
+  color: #e58b4a;
+}
+
+.endscreen__top-item--blunder {
+  color: #e05252;
 }
 
 .endscreen__actions {
   display: flex;
+  flex-direction: column;
   gap: 0.75rem;
-  justify-content: center;
+}
+
+.endscreen__review {
+  width: 100%;
+}
+
+.endscreen__secondary-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.endscreen__secondary-actions button {
+  width: 100%;
 }
 
 .board {
@@ -546,6 +648,107 @@ select {
   gap: 1rem;
 }
 
+.review-panel {
+  grid-column: 3;
+  width: 12rem;
+  padding: 0.75rem;
+  border-radius: 8px;
+  background: #26262c;
+  text-align: left;
+}
+
+.review-panel__accuracy {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.review-panel__accuracy div,
+.review-panel__detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.review-panel__accuracy span,
+.review-panel__hint,
+.review-panel__detail span {
+  color: #a0a0a8;
+  font-size: 0.75rem;
+}
+
+.review-panel__accuracy strong {
+  font-size: 1.05rem;
+}
+
+.review-panel__classes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.review-class {
+  display: grid;
+  grid-template-columns: 1.2rem 1fr 1.2rem;
+  align-items: center;
+  width: 100%;
+  padding: 0.3rem;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: #f0f0f2;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.75rem;
+}
+
+.review-class:hover,
+.review-class--active {
+  border-color: #81b64c;
+  background: #34343c;
+}
+
+.review-badge {
+  font-weight: 700;
+  text-align: left;
+}
+
+.review-badge--brilliant,
+.move-badge--brilliant {
+  color: #3fc7c2;
+}
+
+.review-badge--great,
+.move-badge--great,
+.review-badge--best,
+.move-badge--best {
+  color: #81b64c;
+}
+
+.review-badge--inaccuracy,
+.move-badge--inaccuracy {
+  color: #f0c15a;
+}
+
+.review-badge--mistake,
+.move-badge--mistake,
+.review-badge--miss,
+.move-badge--miss {
+  color: #e58b4a;
+}
+
+.review-badge--blunder,
+.move-badge--blunder {
+  color: #e05252;
+}
+
+.review-panel__detail {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #45454f;
+}
+
 /* Painel de lances em pares numerados; cada meio-lance é clicável. */
 .moves {
   display: flex;
@@ -586,6 +789,14 @@ select {
   text-align: left;
 }
 
+.move-badge {
+  display: block;
+  margin-top: 0.1rem;
+  font-size: 0.58rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
 .moves__ply:hover {
   background: #3a3a43;
 }
@@ -606,12 +817,22 @@ select {
 @media (max-width: 1024px) {
   .game-layout {
     display: flex;
-    flex-direction: column-reverse;
+    flex-direction: column;
     align-items: center;
     gap: 1rem;
   }
 
+  .game-layout__main {
+    order: 1;
+  }
+
+  .review-panel {
+    order: 2;
+    width: min(92vw, 560px);
+  }
+
   .moves {
+    order: 3;
     width: min(92vw, 560px);
     max-height: 8rem;
   }

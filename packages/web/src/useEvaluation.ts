@@ -18,7 +18,7 @@ const DEBOUNCE_MS = 200;
 
 let enginePromise: Promise<StockfishClient> | null = null;
 
-function getSharedEngine(): Promise<StockfishClient> {
+export function getSharedEngine(): Promise<StockfishClient> {
   if (enginePromise) return enginePromise;
   enginePromise = (async () => {
     const response = await fetch('/engine/manifest.json');
