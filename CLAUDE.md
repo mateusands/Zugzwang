@@ -167,10 +167,16 @@ Trabalhe sempre em branch; não faça commits direto na `main`.
 5. **Polish** — desfazer (`undo`), níveis de dificuldade, análise pós-jogo, CLI.
 6. **Interação no navegador** — server (API de jogo) + web (tabuleiro jogável:
    drag/clique, dicas, anotações, sons, promoção, tela de fim, persistência).
+7. **Takeback + navegação** — desfazer o par de lances; navegar o histórico
+   (◀▶, lista de lances clicável, teclado).
+8. **Histórico de partidas** — salvar partidas encerradas (localStorage) e
+   revê-las lance a lance (replay).
+9. **Motor de avaliação** — Stockfish/WASM em Web Worker; barra de avaliação
+   (avaliação, melhor lance, probabilidade de vitória) ao vivo e no replay.
+   **O repo passou a GPLv3** por empacotar o binário do Stockfish.
 
-**Próximas** (detalhe em `.claude/roadmap.md`): 7 takeback · 8 histórico de
-partidas · **9 motor de avaliação (Stockfish/WASM — gargalo)** · 10 revisão e
-classificação de lances · 11 treinador (comentários) · 12 bots com personalidade.
+**Próximas** (detalhe em `.claude/roadmap.md`): 10 revisão e classificação de
+lances · 11 treinador (comentários) · 12 bots com personalidade.
 
 **CI/CD + deploy** (GitHub Actions, Docker) entram **só** quando o dono pedir —
 não antes.

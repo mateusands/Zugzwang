@@ -34,11 +34,11 @@ convenções de commit/branch/PR e evolução incremental documentada.
 
 ## Stack
 
-| Pacote             | Tecnologia                   | Papel                                        |
-| ------------------ | ---------------------------- | -------------------------------------------- |
-| `@zugzwang/engine` | TypeScript, chess.js, Vitest | Regras do xadrez, bot (minimax) e análise    |
-| `@zugzwang/server` | TypeScript, Express          | API de jogo (partidas, lances, resposta bot) |
-| `@zugzwang/web`    | TypeScript, React, Vite      | Tabuleiro clicável para jogar contra o bot   |
+| Pacote             | Tecnologia                              | Papel                                        |
+| ------------------ | --------------------------------------- | -------------------------------------------- |
+| `@zugzwang/engine` | TypeScript, chess.js, Vitest            | Regras do xadrez, bot (minimax) e análise    |
+| `@zugzwang/server` | TypeScript, Express                     | API de jogo (partidas, lances, resposta bot) |
+| `@zugzwang/web`    | TypeScript, React, Vite, Stockfish/WASM | Tabuleiro jogável, histórico e avaliação     |
 
 Ferramentas transversais: **pnpm workspaces**, **ESLint**, **Prettier**.
 
@@ -124,9 +124,14 @@ zugzwang/
 5. **Polish** — desfazer, níveis de dificuldade, análise pós-jogo, CLI.
 6. **Interação no navegador** — API de jogo no server + tabuleiro jogável no web
    (drag/clique, dicas, anotações, sons, promoção, tela de fim, persistência).
+7. **Takeback + navegação** — desfazer o par de lances e navegar o histórico
+   (◀▶, lista de lances clicável, teclado).
+8. **Histórico de partidas** — salvar partidas encerradas (localStorage) e
+   revê-las lance a lance (replay).
+9. **Motor de avaliação** — Stockfish/WASM num Web Worker; barra de avaliação
+   ao lado do tabuleiro (avaliação, melhor lance, probabilidade de vitória).
 
-**Próximo:** takeback → histórico de partidas → **motor de avaliação
-(Stockfish/WASM)** → revisão e classificação de lances → treinador → bots com
+**Próximo:** revisão e classificação de lances → treinador → bots com
 personalidade. Por fim, **CI/CD e deploy**.
 
 Detalhes das convenções (commits, branches, PRs) estão no
@@ -135,9 +140,9 @@ Detalhes das convenções (commits, branches, PRs) estão no
 ## Status
 
 🚧 **Em desenvolvimento ativo.** Já é **jogável contra o bot** — no navegador
-(`pnpm dev`) e no terminal (`pnpm --filter @zugzwang/engine play`). Fases 1–6
-concluídas; a próxima grande virada é o motor de avaliação (Stockfish) que
-destrava a revisão de partidas.
+(`pnpm dev`) e no terminal (`pnpm --filter @zugzwang/engine play`) — com
+histórico de partidas e barra de avaliação Stockfish. Fases 1–9 concluídas; a
+próxima etapa é a revisão e classificação de lances (usando o motor).
 
 ## Licença
 
