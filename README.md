@@ -7,7 +7,7 @@
 -->
 
 ![status](https://img.shields.io/badge/status-em%20desenvolvimento-yellow)
-![license](https://img.shields.io/badge/license-MIT-blue)
+![license](https://img.shields.io/badge/license-GPLv3-blue)
 
 ## Sobre o projeto
 
@@ -141,4 +141,10 @@ destrava a revisão de partidas.
 
 ## Licença
 
-Distribuído sob a licença [MIT](LICENSE).
+Distribuído sob a licença [GNU GPL v3](LICENSE).
+
+A análise de posições usa o [Stockfish](https://stockfishchess.org/) compilado
+para WebAssembly (via [nmrugg/stockfish.js](https://github.com/nmrugg/stockfish.js)),
+que é software livre sob GPLv3 — por isso este projeto também adota a GPLv3.
+O binário do motor não é versionado aqui: é obtido do pacote `stockfish` (npm)
+e copiado para `packages/web/public/engine/` no `dev`/`build`.
