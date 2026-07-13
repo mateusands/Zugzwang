@@ -128,8 +128,72 @@ select {
   align-items: center;
 }
 
+/* Barra de avaliação + tabuleiro. Calhas simétricas SEMPRE reservadas (a da
+   direita fica vazia): a barra ligar/desligar nunca move o tabuleiro. */
+.board-row {
+  display: grid;
+  grid-template-columns: 1.5rem auto 1.5rem;
+  column-gap: 0.6rem;
+  align-items: stretch;
+}
+
+.board-row > .board-area {
+  grid-column: 2;
+}
+
 .board-area {
   position: relative;
+}
+
+.evalbar {
+  grid-column: 1;
+  position: relative;
+  border-radius: 4px;
+  background: #403e3b; /* trilho = lado das pretas */
+  overflow: hidden;
+}
+
+.evalbar--hidden {
+  visibility: hidden;
+}
+
+/* Brancas preenchem de baixo; a altura é a probabilidade de vitória. */
+.evalbar__white {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--win, 50%);
+  background: #ebecd0;
+  transition: height 0.35s ease;
+}
+
+.evalbar__label {
+  position: absolute;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 0.6rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.evalbar__label--bottom {
+  bottom: 3px;
+  color: #33312e;
+}
+
+.evalbar__label--top {
+  top: 3px;
+  color: #ebecd0;
+}
+
+.evalbar--thinking .evalbar__white {
+  opacity: 0.85;
+}
+
+.evalbar--error {
+  background: #4a2e2e;
 }
 
 /* Camada modal sobre o tabuleiro (fim de jogo, promoção, confirmação). */
@@ -430,6 +494,16 @@ select {
   color: #ff8a80;
 }
 
+.app__footer {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #6f6f78;
+}
+
+.app__footer a {
+  color: #8a8a94;
+}
+
 /* Navegação pelo histórico (partida ao vivo e replay de partidas salvas). */
 .replay-controls {
   display: flex;
@@ -540,6 +614,16 @@ select {
   .moves {
     width: min(92vw, 560px);
     max-height: 8rem;
+  }
+
+  /* Calhas menores e tabuleiro um pouco mais estreito para caber com a barra. */
+  .board-row {
+    grid-template-columns: 1.1rem auto 1.1rem;
+    column-gap: 0.4rem;
+  }
+
+  .board-row > .board-area .board {
+    width: min(86vw, 560px);
   }
 }
 

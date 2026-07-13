@@ -5,9 +5,11 @@ import { EMPTY_ANNOTATIONS } from '../annotations.js';
 import { fenToPieces } from '../fen.js';
 import { gameOutcome } from '../outcome.js';
 import { clampPly } from '../replay.js';
+import { useEvaluation } from '../useEvaluation.js';
 import type { SavedGame } from '../savedGames.js';
 import { MoveList } from './MoveList.js';
 import { ReplayControls } from './ReplayControls.js';
+import { EvalBar } from './EvalBar.js';
 
 interface ReplayScreenProps {
   savedGame: SavedGame;
@@ -25,10 +27,12 @@ function noopSquare(_square: string) {}
 /** Revisão de uma partida salva: navegação lance a lance, sem engine nem rede. */
 export function ReplayScreen({ savedGame, suspendKeys, onBack, onOpenList }: ReplayScreenProps) {
   const [ply, setPly] = useState(0);
+  const [showEval, setShowEval] = useState(true);
   const boardRef = useRef<HTMLDivElement>(null);
 
   const plyCount = savedGame.sans.length;
   const fen = savedGame.fens[clampPly(ply, plyCount)] ?? null;
+  const evaluation = useEvaluation(fen, showEval);
   const outcome = gameOutcome(
     savedGame.result.status,
     savedGame.result.winner,
@@ -72,27 +76,43 @@ export function ReplayScreen({ savedGame, suspendKeys, onBack, onOpenList }: Rep
           <button type="button" onClick={onOpenList}>
             Partidas
           </button>
+          <label className="controls__toggle">
+            <input
+              type="checkbox"
+              checked={showEval}
+              onChange={(event) => setShowEval(event.target.checked)}
+            />{' '}
+            Avaliação
+          </label>
         </div>
 
-        <div className="board-area">
-          <BoardView
-            boardRef={boardRef}
-            pieces={fen ? fenToPieces(fen) : []}
-            selected={null}
-            targets={[]}
-            movable={[]}
-            onSquarePointerDown={noopSquarePointer}
-            onSquareMouseDown={noopSquareButton}
-            onSquareMouseUp={noopSquareButton}
-            onSquareMouseEnter={noopSquare}
-            highlights={EMPTY_ANNOTATIONS.highlights}
-            arrows={EMPTY_ANNOTATIONS.arrows}
-            dragFrom={null}
-            animatedMove={null}
-            animationMs={0}
-            moveSeq={0}
-            showHints={false}
+        <div className="board-row">
+          <EvalBar
+            evaluation={evaluation.evaluation}
+            thinking={evaluation.thinking}
+            error={evaluation.error}
+            hidden={!showEval}
           />
+          <div className="board-area">
+            <BoardView
+              boardRef={boardRef}
+              pieces={fen ? fenToPieces(fen) : []}
+              selected={null}
+              targets={[]}
+              movable={[]}
+              onSquarePointerDown={noopSquarePointer}
+              onSquareMouseDown={noopSquareButton}
+              onSquareMouseUp={noopSquareButton}
+              onSquareMouseEnter={noopSquare}
+              highlights={EMPTY_ANNOTATIONS.highlights}
+              arrows={EMPTY_ANNOTATIONS.arrows}
+              dragFrom={null}
+              animatedMove={null}
+              animationMs={0}
+              moveSeq={0}
+              showHints={false}
+            />
+          </div>
         </div>
 
         <ReplayControls
