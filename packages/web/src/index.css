@@ -483,6 +483,87 @@ select {
   background: #f6eb72;
 }
 
+/* Feedback da revisão: origem e destino usam a cor da categoria. */
+.square--review-book {
+  background: #b98b62;
+}
+
+.square--review-brilliant {
+  background: #48b9b2;
+}
+
+.square--review-great,
+.square--review-best {
+  background: #81b64c;
+}
+
+.square--review-excellent,
+.square--review-good {
+  background: #9abb64;
+}
+
+.square--review-inaccuracy {
+  background: #e6c24f;
+}
+
+.square--review-mistake,
+.square--review-miss {
+  background: #e38a49;
+}
+
+.square--review-blunder {
+  background: #e05a4f;
+}
+
+.square__review-marker {
+  position: absolute;
+  top: 4%;
+  right: 4%;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  min-width: 1.55em;
+  height: 1.55em;
+  padding: 0 0.25em;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  border-radius: 999px;
+  background: #3a3a43;
+  color: #fff;
+  font-size: clamp(0.58rem, 1.8vw, 0.85rem);
+  font-weight: 800;
+  line-height: 1;
+  pointer-events: none;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.35);
+}
+
+.square__review-marker--brilliant {
+  background: #249f9a;
+}
+
+.square__review-marker--great,
+.square__review-marker--best,
+.square__review-marker--excellent,
+.square__review-marker--good {
+  background: #6a9f38;
+}
+
+.square__review-marker--book {
+  background: #9b704d;
+}
+
+.square__review-marker--inaccuracy {
+  background: #c89e24;
+}
+
+.square__review-marker--mistake,
+.square__review-marker--miss {
+  background: #cb6e31;
+}
+
+.square__review-marker--blunder {
+  background: #cf4038;
+}
+
 /* Casa pintada por anotação (botão direito). */
 .square--annotated::before {
   content: '';
@@ -629,8 +710,8 @@ select {
    da tela tenha ou não lista de lances — nada se move quando ela aparece. */
 .game-layout {
   display: grid;
-  grid-template-columns: 12rem auto 12rem;
-  column-gap: 2rem;
+  grid-template-columns: 14rem auto 14rem;
+  column-gap: 1.25rem;
   align-items: start;
   justify-content: center;
 }
@@ -650,7 +731,7 @@ select {
 
 .review-panel {
   grid-column: 3;
-  width: 12rem;
+  width: 14rem;
   padding: 0.75rem;
   border-radius: 8px;
   background: #26262c;
@@ -754,9 +835,11 @@ select {
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
-  width: 11rem;
+  width: 14rem;
   max-height: min(92vw, 560px);
   overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
   margin: 0;
   padding: 0.5rem;
   border-radius: 8px;
@@ -767,7 +850,7 @@ select {
 
 .moves__row {
   display: grid;
-  grid-template-columns: 2rem 1fr 1fr;
+  grid-template-columns: 2rem minmax(0, 1fr) minmax(0, 1fr);
   gap: 0.2rem;
   align-items: center;
 }
@@ -778,6 +861,7 @@ select {
 }
 
 .moves__ply {
+  min-width: 0;
   font: inherit;
   font-size: 0.95rem;
   padding: 0.1rem 0.35rem;
@@ -814,7 +898,7 @@ select {
 }
 
 /* Tela estreita: painel de lances vai para baixo do tabuleiro. */
-@media (max-width: 1024px) {
+@media (max-width: 1160px) {
   .game-layout {
     display: flex;
     flex-direction: column;

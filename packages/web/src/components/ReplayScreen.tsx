@@ -1,14 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
-import { BoardView } from '../BoardView.js';
+import { BoardView, type AnimatedMove, type MoveFeedback } from '../BoardView.js';
 import { EMPTY_ANNOTATIONS } from '../annotations.js';
 import { fenToPieces } from '../fen.js';
 import { gameOutcome } from '../outcome.js';
-import { buildGameReview, type GameReview, type ReviewCache } from '../gameReview.js';
+import {
+  buildGameReview,
+  moveUciFromFens,
+  type GameReview,
+  type ReviewCache,
+} from '../gameReview.js';
 import { clampPly } from '../replay.js';
 import { getSharedEngine, useEvaluation } from '../useEvaluation.js';
 import type { SavedGame } from '../savedGames.js';
-import type { MoveClass } from '../review.js';
+import { MOVE_CLASS_ICONS, MOVE_CLASS_LABELS, type MoveClass } from '../review.js';
 import { MoveList } from './MoveList.js';
 import { ReplayControls } from './ReplayControls.js';
 import { EvalBar } from './EvalBar.js';
@@ -30,6 +35,13 @@ interface ReplayScreenProps {
 function noopSquarePointer(_square: string, _event: ReactPointerEvent) {}
 function noopSquareButton(_square: string, _button: number) {}
 function noopSquare(_square: string) {}
+
+const REVIEW_SLIDE_MS = 320;
+
+function moveFromUci(uci: string): AnimatedMove | null {
+  if (!/^[a-h][1-8][a-h][1-8]/.test(uci)) return null;
+  return { from: uci.slice(0, 2), to: uci.slice(2, 4) };
+}
 
 /** Revisão de uma partida salva: navegação lance a lance, sem engine nem rede. */
 export function ReplayScreen({
@@ -53,10 +65,14 @@ export function ReplayScreen({
   }>({ done: 0, total: 0, stage: 'quick' });
   const [reviewError, setReviewError] = useState(false);
   const [filter, setFilter] = useState<MoveClass | null>(null);
-  /** Lance selecionado na revisão; o tabuleiro fica na posição anterior a ele. */
+  /** Lance selecionado na revisão; o tabuleiro anima até a posição posterior. */
   const [selectedReviewPly, setSelectedReviewPly] = useState<number | null>(null);
+  const [reviewMoveSeq, setReviewMoveSeq] = useState(0);
+  const [replayAnimation, setReplayAnimation] = useState<AnimatedMove | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
   const reviewRun = useRef(0);
+  const reviewAbort = useRef<AbortController | null>(null);
+  const animationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const plyCount = savedGame.sans.length;
   const fen = savedGame.fens[clampPly(ply, plyCount)] ?? null;
@@ -69,6 +85,10 @@ export function ReplayScreen({
 
   // Recomeça do início ao trocar de partida.
   useEffect(() => {
+    reviewAbort.current?.abort();
+    reviewAbort.current = null;
+    if (animationTimer.current) clearTimeout(animationTimer.current);
+    animationTimer.current = null;
     reviewRun.current += 1;
     setPly(0);
     setReviewEnabled(startInReview);
@@ -77,10 +97,15 @@ export function ReplayScreen({
     setReviewError(false);
     setFilter(null);
     setSelectedReviewPly(null);
+    setReviewMoveSeq(0);
+    setReplayAnimation(null);
   }, [savedGame.id, savedGame.review, startInReview]);
 
   useEffect(
     () => () => {
+      reviewAbort.current?.abort();
+      reviewAbort.current = null;
+      if (animationTimer.current) clearTimeout(animationTimer.current);
       reviewRun.current += 1;
     },
     [],
@@ -88,12 +113,16 @@ export function ReplayScreen({
 
   const startReview = useCallback(async () => {
     if (review || reviewing) return;
+    reviewAbort.current?.abort();
+    const controller = new AbortController();
+    reviewAbort.current = controller;
     const run = ++reviewRun.current;
     setReviewing(true);
     setReviewError(false);
     setReviewProgress({ done: 0, total: savedGame.fens.length, stage: 'quick' });
     try {
       const client = await getSharedEngine();
+      if (controller.signal.aborted) return;
       const completed = await buildGameReview(
         savedGame,
         (position, request) => client.evaluate(position, request),
@@ -102,16 +131,20 @@ export function ReplayScreen({
         },
         {
           cache: savedGame.reviewCache,
-          onCache: (cache) => onSaveReviewCache?.(savedGame.id, cache),
+          onCache: (cache) => {
+            if (!controller.signal.aborted) onSaveReviewCache?.(savedGame.id, cache);
+          },
+          signal: controller.signal,
         },
       );
-      if (reviewRun.current !== run) return;
+      if (controller.signal.aborted || reviewRun.current !== run) return;
       setReview(completed);
       onSaveReview(savedGame.id, completed);
     } catch {
-      if (reviewRun.current === run) setReviewError(true);
+      if (!controller.signal.aborted && reviewRun.current === run) setReviewError(true);
     } finally {
-      if (reviewRun.current === run) setReviewing(false);
+      if (reviewAbort.current === controller) reviewAbort.current = null;
+      if (!controller.signal.aborted && reviewRun.current === run) setReviewing(false);
     }
   }, [onSaveReview, onSaveReviewCache, review, reviewing, savedGame]);
 
@@ -121,6 +154,12 @@ export function ReplayScreen({
 
   const toggleReview = (enabled: boolean) => {
     setReviewEnabled(enabled);
+    if (!enabled && reviewing) {
+      reviewAbort.current?.abort();
+      reviewAbort.current = null;
+      reviewRun.current += 1;
+      setReviewing(false);
+    }
     if (!enabled && selectedReviewPly !== null) {
       setPly(selectedReviewPly);
       setSelectedReviewPly(null);
@@ -128,17 +167,57 @@ export function ReplayScreen({
     if (enabled && !review) void startReview();
   };
 
+  const moveAtPly = useCallback(
+    (movePly: number): AnimatedMove | null => {
+      if (movePly < 1 || movePly > plyCount) return null;
+      const reviewedMove = review?.plies[movePly - 1]?.playedMove;
+      if (reviewedMove) return moveFromUci(reviewedMove);
+      const before = savedGame.fens[movePly - 1];
+      const after = savedGame.fens[movePly];
+      const san = savedGame.sans[movePly - 1];
+      if (!before || !after || !san) return null;
+      try {
+        return moveFromUci(moveUciFromFens(before, after, san));
+      } catch {
+        return null;
+      }
+    },
+    [plyCount, review, savedGame.fens, savedGame.sans],
+  );
+
+  const playAnimation = useCallback((move: AnimatedMove | null) => {
+    if (animationTimer.current) clearTimeout(animationTimer.current);
+    setReplayAnimation(move);
+    if (!move) return;
+    setReviewMoveSeq((current) => current + 1);
+    animationTimer.current = setTimeout(() => {
+      animationTimer.current = null;
+      setReplayAnimation(null);
+    }, REVIEW_SLIDE_MS);
+  }, []);
+
   const navigateTo = useCallback(
     (next: number) => {
-      setSelectedReviewPly(null);
-      setPly(clampPly(next, plyCount));
+      const target = clampPly(next, plyCount);
+      if (target === ply) return;
+      const forward = target > ply;
+      const traversedPly = forward ? target : target + 1;
+      const traversedMove = moveAtPly(traversedPly);
+      playAnimation(
+        !forward && traversedMove
+          ? { from: traversedMove.to, to: traversedMove.from }
+          : traversedMove,
+      );
+      setPly(target);
+      setSelectedReviewPly(reviewEnabled && review && target > 0 ? target : null);
     },
-    [plyCount],
+    [moveAtPly, playAnimation, ply, plyCount, review, reviewEnabled],
   );
   const selectMove = (selectedPly: number) => {
     if (reviewEnabled && review) {
       setSelectedReviewPly(selectedPly);
-      setPly(clampPly(selectedPly - 1, plyCount));
+      setPly(clampPly(selectedPly, plyCount));
+      playAnimation(moveAtPly(selectedPly));
     } else {
       navigateTo(selectedPly);
     }
@@ -149,8 +228,21 @@ export function ReplayScreen({
       ? review.plies[selectedReviewPly - 1]
       : undefined;
   const bestMove = selectedReview?.bestMove ?? '';
+  const selectedPlayedMove = selectedReview ? moveFromUci(selectedReview.playedMove) : null;
+  const moveFeedback: MoveFeedback | null =
+    selectedReview && selectedPlayedMove
+      ? {
+          ...selectedPlayedMove,
+          moveClass: selectedReview.class,
+          icon: MOVE_CLASS_ICONS[selectedReview.class],
+          label: MOVE_CLASS_LABELS[selectedReview.class],
+        }
+      : null;
+  const suggestedMove = moveFromUci(bestMove);
   const reviewArrows =
-    bestMove.length >= 4 ? [{ path: [bestMove.slice(0, 2), bestMove.slice(2, 4)] }] : [];
+    suggestedMove && bestMove.slice(0, 4) !== selectedReview?.playedMove.slice(0, 4)
+      ? [{ path: [suggestedMove.from, suggestedMove.to], tone: 'best' as const }]
+      : [];
 
   // Teclado: ← → navegam, Home vai ao início, End à posição final.
   useEffect(() => {
@@ -231,9 +323,10 @@ export function ReplayScreen({
               highlights={EMPTY_ANNOTATIONS.highlights}
               arrows={reviewArrows}
               dragFrom={null}
-              animatedMove={null}
-              animationMs={0}
-              moveSeq={0}
+              animatedMove={replayAnimation}
+              animationMs={REVIEW_SLIDE_MS}
+              moveSeq={reviewMoveSeq}
+              moveFeedback={moveFeedback}
               showHints={false}
             />
           </div>
