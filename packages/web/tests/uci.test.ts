@@ -36,6 +36,7 @@ describe('parseInfoLine', () => {
 
     expect(parseInfoLine(line, 'white')).toEqual({
       depth: 12,
+      multiPv: 1,
       score: { type: 'cp', value: 35 },
       pv: ['e2e4', 'e7e5'],
     });
@@ -45,6 +46,15 @@ describe('parseInfoLine', () => {
     const line = 'info depth 12 multipv 1 score cp 35 pv e7e5';
 
     expect(parseInfoLine(line, 'black')?.score).toEqual({ type: 'cp', value: -35 });
+  });
+
+  it('normaliza WDL para as brancas e expõe Expected Points sem custo de busca extra', () => {
+    expect(
+      parseInfoLine('info depth 14 score cp 20 wdl 500 300 200 pv e2e4', 'white')?.wdl,
+    ).toEqual({ white: 500, draw: 300, black: 200 });
+    expect(
+      parseInfoLine('info depth 14 score cp 20 wdl 500 300 200 pv e7e5', 'black')?.wdl,
+    ).toEqual({ white: 200, draw: 300, black: 500 });
   });
 
   it('mate positivo é do lado a mover; negativo, do adversário', () => {
@@ -74,8 +84,13 @@ describe('parseInfoLine', () => {
     });
   });
 
-  it('ignora linhas de multipv secundário e limites de janela', () => {
-    expect(parseInfoLine('info depth 12 multipv 2 score cp 20 pv d2d4', 'white')).toBeNull();
+  it('preserva o índice de linhas multipv secundárias e ignora limites de janela', () => {
+    expect(parseInfoLine('info depth 12 multipv 2 score cp 20 pv d2d4', 'white')).toEqual({
+      depth: 12,
+      multiPv: 2,
+      score: { type: 'cp', value: 20 },
+      pv: ['d2d4'],
+    });
     expect(parseInfoLine('info depth 12 score cp 35 lowerbound pv e2e4', 'white')).toBeNull();
     expect(parseInfoLine('info depth 12 score cp 35 upperbound pv e2e4', 'white')).toBeNull();
   });
@@ -90,6 +105,7 @@ describe('parseInfoLine', () => {
   it('linha com score mas sem pv parseia com pv vazio', () => {
     expect(parseInfoLine('info depth 5 score cp -10', 'white')).toEqual({
       depth: 5,
+      multiPv: 1,
       score: { type: 'cp', value: -10 },
       pv: [],
     });
