@@ -31,9 +31,14 @@ export default tseslint.config(
     },
   },
 
-  // Node-based packages (engine, server) e scripts de build (.mjs).
+  // Node-based packages (engine, analysis, server) e scripts de build (.mjs).
   {
-    files: ['packages/engine/**/*.ts', 'packages/server/**/*.ts', '**/scripts/**/*.mjs'],
+    files: [
+      'packages/engine/**/*.ts',
+      'packages/analysis/**/*.ts',
+      'packages/server/**/*.ts',
+      '**/scripts/**/*.mjs',
+    ],
     languageOptions: {
       globals: { ...globals.node },
     },

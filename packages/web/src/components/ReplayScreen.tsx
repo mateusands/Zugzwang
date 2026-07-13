@@ -11,7 +11,8 @@ import {
   type ReviewCache,
 } from '../gameReview.js';
 import { clampPly } from '../replay.js';
-import { getSharedEngine, useEvaluation } from '../useEvaluation.js';
+import { useEvaluation } from '../useEvaluation.js';
+import { createReviewAnalysisStrategy } from '../reviewAnalysis.js';
 import type { SavedGame } from '../savedGames.js';
 import { MOVE_CLASS_ICONS, MOVE_CLASS_LABELS, type MoveClass } from '../review.js';
 import { MoveList } from './MoveList.js';
@@ -64,6 +65,7 @@ export function ReplayScreen({
     stage: 'quick' | 'deep';
   }>({ done: 0, total: 0, stage: 'quick' });
   const [reviewError, setReviewError] = useState(false);
+  const [reviewSource, setReviewSource] = useState<'checking' | 'server' | 'browser'>('checking');
   const [filter, setFilter] = useState<MoveClass | null>(null);
   /** Lance selecionado na revisão; o tabuleiro anima até a posição posterior. */
   const [selectedReviewPly, setSelectedReviewPly] = useState<number | null>(null);
@@ -95,6 +97,7 @@ export function ReplayScreen({
     setReview(savedGame.review ?? null);
     setReviewing(false);
     setReviewError(false);
+    setReviewSource('checking');
     setFilter(null);
     setSelectedReviewPly(null);
     setReviewMoveSeq(0);
@@ -119,13 +122,15 @@ export function ReplayScreen({
     const run = ++reviewRun.current;
     setReviewing(true);
     setReviewError(false);
+    setReviewSource('checking');
     setReviewProgress({ done: 0, total: savedGame.fens.length, stage: 'quick' });
     try {
-      const client = await getSharedEngine();
+      const strategy = await createReviewAnalysisStrategy(controller.signal);
       if (controller.signal.aborted) return;
+      setReviewSource(strategy.source);
       const completed = await buildGameReview(
         savedGame,
-        (position, request) => client.evaluate(position, request),
+        strategy.evaluate,
         (done, total, stage) => {
           if (reviewRun.current === run) setReviewProgress({ done, total, stage });
         },
@@ -135,6 +140,7 @@ export function ReplayScreen({
             if (!controller.signal.aborted) onSaveReviewCache?.(savedGame.id, cache);
           },
           signal: controller.signal,
+          ...(strategy.batchEvaluate ? { batchEvaluate: strategy.batchEvaluate } : {}),
         },
       );
       if (controller.signal.aborted || reviewRun.current !== run) return;
@@ -344,8 +350,8 @@ export function ReplayScreen({
         <p className="status status--muted">
           {reviewing
             ? reviewProgress.stage === 'deep'
-              ? `Refinando ${reviewProgress.done}/${reviewProgress.total} posições críticas…`
-              : `Analisando ${reviewProgress.done}/${reviewProgress.total} posições…`
+              ? `Refinando ${reviewProgress.done}/${reviewProgress.total} posições críticas ${reviewSource === 'server' ? 'no servidor' : 'no navegador'}…`
+              : `Analisando ${reviewProgress.done}/${reviewProgress.total} posições ${reviewSource === 'server' ? 'no servidor' : reviewSource === 'browser' ? 'no navegador' : ''}…`
             : reviewError
               ? 'Não foi possível revisar a partida.'
               : `${outcome.title} ${outcome.reason} · ${savedGame.difficulty}`}

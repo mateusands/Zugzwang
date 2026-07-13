@@ -13,8 +13,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@zugzwang/analysis": "workspace:*",
     "@zugzwang/engine": "workspace:*",
-    "express": "^4.21.2"
+    "express": "^4.21.2",
+    "stockfish": "^18.0.0"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",

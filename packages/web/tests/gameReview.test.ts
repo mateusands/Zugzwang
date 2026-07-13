@@ -4,6 +4,9 @@ import {
   REVIEW_QUICK_MS,
   buildGameReview,
   moveUciFromFens,
+  pendingDeepReviewItems,
+  prioritizeDeepCandidates,
+  type ReviewBatchEvaluator,
   type ReviewCache,
   type ReviewEvaluationRequest,
 } from '../src/gameReview.js';
@@ -73,6 +76,103 @@ describe('moveUciFromFens', () => {
 });
 
 describe('buildGameReview', () => {
+  it('limits maximum refinement to the four highest-priority plies', () => {
+    expect(
+      prioritizeDeepCandidates([
+        { index: 0, priority: 10 },
+        { index: 1, priority: 60 },
+        { index: 2, priority: 20 },
+        { index: 3, priority: 50 },
+        { index: 4, priority: 30 },
+        { index: 5, priority: 40 },
+      ]),
+    ).toEqual([1, 3, 5, 4]);
+  });
+
+  it('envia todas as posicoes rapidas em um unico lote para o backend', async () => {
+    const values: Record<string, Evaluation> = {
+      '0': evaluation(50, 'h2h3', 48),
+      '1': evaluation(50, 'h7h6', 50),
+      '2': evaluation(50, 'h2h3', 49),
+    };
+    const localEvaluate = vi.fn();
+    const batchEvaluate = vi.fn<ReviewBatchEvaluator>(async (_items, profile, onProgress) => {
+      expect(profile).toBe('fast');
+      onProgress?.(3, 3);
+      return values;
+    });
+
+    const review = await buildGameReview(nonBookGame(), localEvaluate, undefined, {
+      batchEvaluate,
+    });
+
+    expect(batchEvaluate).toHaveBeenCalledTimes(1);
+    expect(batchEvaluate.mock.calls[0]?.[0]).toEqual([
+      { key: '0', fen: START, multiPv: 1 },
+      { key: '1', fen: AFTER_A3, multiPv: 1 },
+      { key: '2', fen: AFTER_A6, multiPv: 1 },
+    ]);
+    expect(localEvaluate).not.toHaveBeenCalled();
+    expect(review.plies).toHaveLength(2);
+  });
+
+  it('cai para o motor local quando o backend falha antes de concluir o lote', async () => {
+    const values = new Map<string, Evaluation>([
+      [START, evaluation(50, 'h2h3', 48)],
+      [AFTER_A3, evaluation(50, 'h7h6', 50)],
+      [AFTER_A6, evaluation(50, 'h2h3', 49)],
+    ]);
+    const localEvaluate = vi.fn(async (fen: string) => values.get(fen) ?? null);
+    const batchEvaluate = vi.fn<ReviewBatchEvaluator>().mockRejectedValue(new Error('offline'));
+
+    await buildGameReview(nonBookGame(), localEvaluate, undefined, { batchEvaluate });
+
+    expect(batchEvaluate).toHaveBeenCalledTimes(1);
+    expect(localEvaluate).toHaveBeenCalledTimes(3);
+  });
+
+  it('usa o perfil deep somente no lote reduzido de posicoes criticas', async () => {
+    const quick: Record<string, Evaluation> = {
+      '0': evaluation(60, 'h2h3', 45),
+      '1': evaluation(40, 'h7h6', 38),
+      '2': evaluation(40, 'h2h3', 38),
+    };
+    const batchEvaluate = vi.fn<ReviewBatchEvaluator>(async (items, _profile) => {
+      return Object.fromEntries(items.map((item) => [item.key, quick[item.key]])) as Record<
+        string,
+        Evaluation
+      >;
+    });
+    const localEvaluate = vi.fn();
+
+    await buildGameReview(nonBookGame(), localEvaluate, undefined, { batchEvaluate });
+
+    expect(batchEvaluate.mock.calls.map(([, profile]) => profile)).toEqual(['fast', 'deep']);
+    expect(batchEvaluate.mock.calls[1]?.[0]).toEqual([
+      { key: '0', fen: START, multiPv: 2 },
+      { key: '1', fen: AFTER_A3, multiPv: 1 },
+    ]);
+    expect(localEvaluate).not.toHaveBeenCalled();
+  });
+
+  it('expõe somente refinamentos profundos ainda ausentes no cache', () => {
+    const cache: ReviewCache = {
+      [START]: { evaluation: evaluation(60, 'h2h3', 45), quality: 'quick', multiPv: 1 },
+      [AFTER_A3]: { evaluation: evaluation(40, 'h7h6', 38), quality: 'quick', multiPv: 1 },
+      [AFTER_A6]: { evaluation: evaluation(40, 'h2h3', 38), quality: 'quick', multiPv: 1 },
+    };
+
+    expect(pendingDeepReviewItems(nonBookGame(), cache)).toEqual([
+      { key: '0', fen: START, multiPv: 2 },
+      { key: '1', fen: AFTER_A3, multiPv: 1 },
+    ]);
+
+    cache[START] = { evaluation: evaluation(61, 'h2h3', 44), quality: 'deep', multiPv: 2 };
+    expect(pendingDeepReviewItems(nonBookGame(), cache)).toEqual([
+      { key: '1', fen: AFTER_A3, multiPv: 1 },
+    ]);
+  });
+
   it('faz a passagem rápida em sequência com MultiPV 1', async () => {
     const values = new Map<string, Evaluation>([
       [START, evaluation(50, 'h2h3', 48)],
@@ -180,5 +280,27 @@ describe('buildGameReview', () => {
       buildGameReview(nonBookGame(), evaluate, undefined, { signal: controller.signal }),
     ).rejects.toHaveProperty('name', 'AbortError');
     expect(evaluate).toHaveBeenCalledTimes(1);
+  });
+
+  it('persiste resultados parciais do backend antes de um cancelamento', async () => {
+    const controller = new AbortController();
+    const onCache = vi.fn();
+    const batchEvaluate = vi.fn<ReviewBatchEvaluator>(
+      async (_items, _profile, _onProgress, _signal, onResults) => {
+        onResults?.({ '0': evaluation(50, 'h2h3', 48) });
+        controller.abort();
+        throw new DOMException('cancelled', 'AbortError');
+      },
+    );
+
+    await expect(
+      buildGameReview(nonBookGame(), vi.fn(), undefined, {
+        batchEvaluate,
+        onCache,
+        signal: controller.signal,
+      }),
+    ).rejects.toHaveProperty('name', 'AbortError');
+    expect(onCache).toHaveBeenCalled();
+    expect(onCache.mock.calls.at(-1)?.[0]).toHaveProperty(START);
   });
 });

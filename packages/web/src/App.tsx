@@ -24,9 +24,23 @@ import { ReplayScreen } from './components/ReplayScreen.js';
 import { SavedGamesDialog } from './components/SavedGamesDialog.js';
 import { EvalBar } from './components/EvalBar.js';
 import { useSavedGames } from './useSavedGames.js';
-import { getSharedEngine, useEvaluation } from './useEvaluation.js';
+import { useEvaluation } from './useEvaluation.js';
+import { createReviewAnalysisStrategy } from './reviewAnalysis.js';
 import { readSavedGames, type SavedGame } from './savedGames.js';
-import { REVIEW_QUICK_MS, buildGameReview, type GameReview } from './gameReview.js';
+import {
+  buildGameReview,
+  isReviewCache,
+  pendingDeepReviewItems,
+  type GameReview,
+  type ReviewCache,
+} from './gameReview.js';
+import { analyzePositionBatch, checkAnalysisBackend } from './analysisApi.js';
+import {
+  isObsoleteLiveBatch,
+  liveReviewItems,
+  mergeLiveReviewResults,
+  pruneLiveReviewCache,
+} from './liveReview.js';
 import {
   createGame,
   getGame,
@@ -53,6 +67,11 @@ interface BoardState {
   animatedMove: AnimatedMove | null;
   animationMs: number;
   seq: number;
+}
+
+interface LiveAnalysisBatch {
+  fens: string[];
+  controller: AbortController;
 }
 
 interface PendingPromotion {
@@ -115,39 +134,64 @@ export function App() {
     stage: 'quick' | 'deep';
   }>({ done: 0, total: 0, stage: 'quick' });
   const [endReviewError, setEndReviewError] = useState(false);
+  const [liveReviewCache, setLiveReviewCache] = useState<ReviewCache>({});
   const endReviewRun = useRef(0);
   const endReviewAbort = useRef<AbortController | null>(null);
-  const backgroundFen = useRef<string | null>(null);
+  const liveReviewCacheRef = useRef<ReviewCache>({});
+  const liveAnalysisBatches = useRef(new Map<number, LiveAnalysisBatch>());
+  const liveAnalysisInFlight = useRef(new Set<string>());
+  const liveAnalysisSequence = useRef(0);
+  const liveAnalysisGameId = useRef<string | null>(null);
+  const liveGameFens = useRef<string[]>([]);
   /** Caminho de casas percorrido com o botão direito pressionado. */
   const rightPath = useRef<string[] | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
 
-  const startGame = useCallback(async (level: Difficulty) => {
-    endReviewAbort.current?.abort();
-    endReviewAbort.current = null;
-    endReviewRun.current += 1;
-    setError(null);
-    setSelected(null);
-    setResigned(false);
-    setAnnotations(EMPTY_ANNOTATIONS);
-    setViewPly(null);
-    setEndReview(null);
-    setEndReviewing(false);
-    setEndReviewError(false);
-    setEndReviewProgress({ done: 0, total: 0, stage: 'quick' });
-    backgroundFen.current = null;
-    setReplayGame(null);
-    setReplayStartsInReview(false);
-    setGame(null);
-    try {
-      const state = await createGame(level);
-      setDifficulty(level);
-      setGame(state);
-      setBoard({ pieces: state.pieces, animatedMove: null, animationMs: PLAYER_SLIDE_MS, seq: 0 });
-    } catch {
-      setError('Não foi possível falar com o servidor. Ele está rodando? (pnpm dev)');
-    }
+  liveReviewCacheRef.current = liveReviewCache;
+  liveGameFens.current = game?.fens ?? [];
+
+  const cancelLiveAnalysis = useCallback(() => {
+    for (const batch of liveAnalysisBatches.current.values()) batch.controller.abort();
+    liveAnalysisBatches.current.clear();
+    liveAnalysisInFlight.current.clear();
   }, []);
+
+  const startGame = useCallback(
+    async (level: Difficulty) => {
+      endReviewAbort.current?.abort();
+      endReviewAbort.current = null;
+      endReviewRun.current += 1;
+      setError(null);
+      setSelected(null);
+      setResigned(false);
+      setAnnotations(EMPTY_ANNOTATIONS);
+      setViewPly(null);
+      setEndReview(null);
+      setEndReviewing(false);
+      setEndReviewError(false);
+      setEndReviewProgress({ done: 0, total: 0, stage: 'quick' });
+      cancelLiveAnalysis();
+      liveAnalysisGameId.current = null;
+      setLiveReviewCache({});
+      setReplayGame(null);
+      setReplayStartsInReview(false);
+      setGame(null);
+      try {
+        const state = await createGame(level);
+        setDifficulty(level);
+        setGame(state);
+        setBoard({
+          pieces: state.pieces,
+          animatedMove: null,
+          animationMs: PLAYER_SLIDE_MS,
+          seq: 0,
+        });
+      } catch {
+        setError('Não foi possível falar com o servidor. Ele está rodando? (pnpm dev)');
+      }
+    },
+    [cancelLiveAnalysis],
+  );
 
   // Restaura a partida em andamento ao recarregar a página.
   useEffect(() => {
@@ -156,7 +200,12 @@ export function App() {
       setRestoring(false);
       return;
     }
-    let stored: { id: string; difficulty: Difficulty; resigned: boolean };
+    let stored: {
+      id: string;
+      difficulty: Difficulty;
+      resigned: boolean;
+      reviewCache?: unknown;
+    };
     try {
       stored = JSON.parse(raw) as typeof stored;
     } catch {
@@ -167,6 +216,7 @@ export function App() {
       .then((state) => {
         setDifficulty(stored.difficulty);
         setResigned(stored.resigned);
+        setLiveReviewCache(isReviewCache(stored.reviewCache) ? stored.reviewCache : {});
         setGame(state);
         setBoard({
           pieces: state.pieces,
@@ -179,15 +229,23 @@ export function App() {
       .finally(() => setRestoring(false));
   }, []);
 
-  // Persiste a partida atual (id + dificuldade + desistência).
+  // Persiste a partida atual e o trabalho Stockfish já concluído em segundo plano.
   useEffect(() => {
     if (restoring) return;
     if (game) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ id: game.id, difficulty, resigned }));
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          id: game.id,
+          difficulty,
+          resigned,
+          ...(Object.keys(liveReviewCache).length > 0 ? { reviewCache: liveReviewCache } : {}),
+        }),
+      );
     } else {
       localStorage.removeItem(STORAGE_KEY);
     }
-  }, [game, difficulty, resigned, restoring]);
+  }, [game, difficulty, resigned, liveReviewCache, restoring]);
 
   const playMove = useCallback(
     (from: string, to: string, promotion: string | undefined) => {
@@ -290,6 +348,130 @@ export function App() {
   const over = !!game && (game.gameOver || resigned);
   const viewing = viewPly !== null;
 
+  // Usa o tempo entre lances para preparar a passagem rápida da revisão.
+  // Jobs continuam em voo entre renders; takeback cancela somente lotes que
+  // contenham posições removidas da linha atual.
+  useEffect(() => {
+    if (!game) {
+      cancelLiveAnalysis();
+      liveAnalysisGameId.current = null;
+      return;
+    }
+    if (liveAnalysisGameId.current !== game.id) {
+      cancelLiveAnalysis();
+      liveAnalysisGameId.current = game.id;
+    }
+
+    for (const [batchId, batch] of liveAnalysisBatches.current) {
+      if (!isObsoleteLiveBatch(batch.fens, game.fens)) continue;
+      batch.controller.abort();
+      for (const fen of batch.fens) liveAnalysisInFlight.current.delete(fen);
+      liveAnalysisBatches.current.delete(batchId);
+    }
+    setLiveReviewCache((current) => pruneLiveReviewCache(current, game.fens));
+
+    if (over) {
+      cancelLiveAnalysis();
+      return;
+    }
+
+    const quickItems = liveReviewItems(
+      game.history,
+      game.fens,
+      liveReviewCacheRef.current,
+      liveAnalysisInFlight.current,
+    );
+    const reviewSource = {
+      sans: game.history,
+      fens: game.fens,
+      // Uma linha em andamento precisa da avaliação de sua posição atual.
+      result: {
+        kind: 'draw' as const,
+        status: 'in_progress',
+        resigned: true,
+        winner: null,
+      },
+    };
+    const initialDeepItems =
+      quickItems.length === 0
+        ? pendingDeepReviewItems(reviewSource, liveReviewCacheRef.current).filter(
+            (item) => !liveAnalysisInFlight.current.has(item.fen),
+          )
+        : [];
+    if (quickItems.length === 0 && initialDeepItems.length === 0) return;
+
+    const controller = new AbortController();
+    const batchId = ++liveAnalysisSequence.current;
+    const trackBatch = (fens: string[]) => {
+      const previous = liveAnalysisBatches.current.get(batchId);
+      for (const fen of previous?.fens ?? []) liveAnalysisInFlight.current.delete(fen);
+      if (fens.length === 0) {
+        liveAnalysisBatches.current.delete(batchId);
+        return;
+      }
+      for (const fen of fens) liveAnalysisInFlight.current.add(fen);
+      liveAnalysisBatches.current.set(batchId, { fens, controller });
+    };
+    const mergeResults = (
+      items: typeof quickItems,
+      results: Parameters<typeof mergeLiveReviewResults>[2],
+      quality: 'quick' | 'deep',
+    ) => {
+      if (controller.signal.aborted) return liveReviewCacheRef.current;
+      const next = pruneLiveReviewCache(
+        mergeLiveReviewResults(liveReviewCacheRef.current, items, results, quality),
+        liveGameFens.current,
+      );
+      liveReviewCacheRef.current = next;
+      setLiveReviewCache(next);
+      return next;
+    };
+    trackBatch((quickItems.length > 0 ? quickItems : initialDeepItems).map((item) => item.fen));
+
+    void checkAnalysisBackend(controller.signal)
+      .then(async (backend) => {
+        if (!backend.available || controller.signal.aborted) return null;
+        let cache = liveReviewCacheRef.current;
+        if (quickItems.length > 0) {
+          const results = await analyzePositionBatch(quickItems, 'fast', {
+            signal: controller.signal,
+            onResults: (partial) => {
+              cache = mergeResults(quickItems, partial, 'quick');
+            },
+          });
+          cache = mergeResults(quickItems, results, 'quick');
+          trackBatch([]);
+        }
+        if (controller.signal.aborted) return null;
+
+        const deepItems = (
+          quickItems.length > 0 ? pendingDeepReviewItems(reviewSource, cache) : initialDeepItems
+        ).filter((item) => !liveAnalysisInFlight.current.has(item.fen));
+        if (deepItems.length === 0) return null;
+        trackBatch(deepItems.map((item) => item.fen));
+
+        // Um item profundo por job reserva o outro processo Stockfish para a
+        // posição fast do próximo lance.
+        for (const item of deepItems) {
+          if (controller.signal.aborted) break;
+          const results = await analyzePositionBatch([item], 'deep', {
+            signal: controller.signal,
+            onResults: (partial) => {
+              cache = mergeResults([item], partial, 'deep');
+            },
+          });
+          cache = mergeResults([item], results, 'deep');
+        }
+        return null;
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        trackBatch([]);
+      });
+  }, [cancelLiveAnalysis, game, over]);
+
+  useEffect(() => () => cancelLiveAnalysis(), [cancelLiveAnalysis]);
+
   const finishedSavedGame = useMemo<SavedGame | null>(() => {
     if (!game || !over) return null;
     const finishedOutcome = gameOutcome(game.status, game.winner, resigned);
@@ -307,8 +489,9 @@ export function App() {
       sans: game.history,
       fens: game.fens,
       pgn: game.pgn,
+      ...(Object.keys(liveReviewCache).length > 0 ? { reviewCache: liveReviewCache } : {}),
     };
-  }, [difficulty, game, over, resigned]);
+  }, [difficulty, game, liveReviewCache, over, resigned]);
 
   // Auto-save: partida encerrada (mate/empate/desistência) vai para o
   // localStorage. Dedupe por id e savedAt estável tornam o effect idempotente
@@ -346,14 +529,14 @@ export function App() {
     setEndReviewing(true);
     setEndReviewError(false);
     setEndReviewProgress({ done: 0, total: finishedSavedGame.fens.length, stage: 'quick' });
-    void getSharedEngine()
-      .then((client) => {
+    void createReviewAnalysisStrategy(controller.signal)
+      .then((strategy) => {
         if (controller.signal.aborted) {
           throw new DOMException('game review cancelled', 'AbortError');
         }
         return buildGameReview(
           gameWithCache,
-          (position, request) => client.evaluate(position, request),
+          strategy.evaluate,
           (done, total, stage) => {
             if (endReviewRun.current === run) setEndReviewProgress({ done, total, stage });
           },
@@ -363,6 +546,7 @@ export function App() {
               if (!controller.signal.aborted) saveReviewCache(finishedSavedGame.id, cache);
             },
             signal: controller.signal,
+            ...(strategy.batchEvaluate ? { batchEvaluate: strategy.batchEvaluate } : {}),
           },
         );
       })
@@ -532,33 +716,6 @@ export function App() {
     game ? (viewedFen ?? game.fen) : null,
     showEval && !!game && !endReviewing,
   );
-
-  // Quando a avaliação visível termina, usa o tempo ocioso para preparar a
-  // posição intermediária (após o lance humano) que a UI normalmente não exibe.
-  useEffect(() => {
-    if (!game || over || !evaluation.ready || evaluation.thinking || game.fens.length < 3) return;
-    const target = game.fens[game.fens.length - 2];
-    if (!target || backgroundFen.current === target) return;
-    const controller = new AbortController();
-    const timer = setTimeout(() => {
-      backgroundFen.current = target;
-      void getSharedEngine()
-        .then((client) =>
-          client.evaluate(target, {
-            limit: { movetime: REVIEW_QUICK_MS },
-            multiPv: 1,
-            signal: controller.signal,
-          }),
-        )
-        .catch(() => {
-          if (backgroundFen.current === target) backgroundFen.current = null;
-        });
-    }, 300);
-    return () => {
-      clearTimeout(timer);
-      controller.abort();
-    };
-  }, [evaluation.ready, evaluation.thinking, game, over]);
 
   return (
     <main className="app">

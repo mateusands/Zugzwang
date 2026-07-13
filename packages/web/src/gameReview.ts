@@ -12,6 +12,7 @@ import { turnOfFen } from './uci.js';
 import type { Piece, PieceColor } from './api.js';
 import type { SavedGame } from './savedGames.js';
 import type { Evaluation } from './stockfishClient.js';
+import type { AnalysisItemRequest, AnalysisProfile } from '@zugzwang/analysis';
 
 export type MoveCounts = Record<MoveClass, number>;
 
@@ -30,6 +31,8 @@ export interface ReviewCacheEntry {
 /** Avaliações parciais serializáveis, indexadas pelo FEN completo. */
 export type ReviewCache = Record<string, ReviewCacheEntry>;
 
+export type ReviewPositionSource = Pick<SavedGame, 'sans' | 'fens' | 'result'>;
+
 export interface MoveClassOccurrence {
   class: MoveClass;
   count: number;
@@ -37,7 +40,19 @@ export interface MoveClassOccurrence {
 
 export const REVIEW_QUICK_MS = 120;
 export const REVIEW_DEEP_MS = 400;
-const MAX_DEEP_PLIES = 12;
+export const REVIEW_MAX_DEEP_PLIES = 4;
+
+export interface DeepReviewCandidate {
+  index: number;
+  priority: number;
+}
+
+export function prioritizeDeepCandidates(candidates: DeepReviewCandidate[]): number[] {
+  return [...candidates]
+    .sort((a, b) => b.priority - a.priority || a.index - b.index)
+    .slice(0, REVIEW_MAX_DEEP_PLIES)
+    .map(({ index }) => index);
+}
 
 export interface ReviewEvaluationRequest {
   limit: { movetime: number };
@@ -50,14 +65,27 @@ export type ReviewEvaluator = (
   request: ReviewEvaluationRequest,
 ) => Promise<Evaluation | null>;
 
+export type ReviewBatchEvaluator = (
+  items: AnalysisItemRequest[],
+  profile: AnalysisProfile,
+  onProgress?: (done: number, total: number) => void,
+  signal?: AbortSignal,
+  onResults?: (results: Record<string, Evaluation>) => void,
+) => Promise<Record<string, Evaluation>>;
+
 export interface BuildReviewOptions {
   cache?: ReviewCache;
   onCache?: (cache: ReviewCache) => void;
   signal?: AbortSignal;
+  batchEvaluate?: ReviewBatchEvaluator;
 }
 
 function throwIfReviewAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted) throw new DOMException('game review cancelled', 'AbortError');
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError';
 }
 
 export function emptyMoveCounts(): MoveCounts {
@@ -121,7 +149,7 @@ function moverWinPercent(whiteWinPercent: number, mover: PieceColor): number {
   return mover === 'white' ? whiteWinPercent : 100 - whiteWinPercent;
 }
 
-function finalWhiteWinPercent(game: SavedGame): number {
+function finalWhiteWinPercent(game: ReviewPositionSource): number {
   if (game.result.winner === 'white') return 100;
   if (game.result.winner === 'black') return 0;
   return 50;
@@ -140,7 +168,7 @@ function sacrificedPiece(
 }
 
 function reviewFromEvaluations(
-  savedGame: SavedGame,
+  savedGame: ReviewPositionSource,
   evaluations: Map<number, Evaluation>,
   bookPlies: number,
 ): GameReview {
@@ -218,7 +246,7 @@ function reviewFromEvaluations(
   };
 }
 
-function enginePositionIndices(savedGame: SavedGame, bookPlies: number): number[] {
+function enginePositionIndices(savedGame: ReviewPositionSource, bookPlies: number): number[] {
   if (bookPlies >= savedGame.sans.length) return [];
   const finalIndex = savedGame.fens.length - 1;
   const lastEngineIndex = savedGame.result.resigned ? finalIndex : finalIndex - 1;
@@ -229,12 +257,12 @@ function enginePositionIndices(savedGame: SavedGame, bookPlies: number): number[
 }
 
 function deepCandidateIndices(
-  savedGame: SavedGame,
+  savedGame: ReviewPositionSource,
   review: GameReview,
   evaluations: Map<number, Evaluation>,
   bookPlies: number,
 ): number[] {
-  return review.plies
+  const candidates = review.plies
     .map((ply, index) => {
       if (index < bookPlies) return null;
       const beforeFen = savedGame.fens[index];
@@ -260,10 +288,49 @@ function deepCandidateIndices(
           (sacrifice ? 40 : 0),
       };
     })
-    .filter((candidate): candidate is { index: number; priority: number } => candidate !== null)
-    .sort((a, b) => b.priority - a.priority || a.index - b.index)
-    .slice(0, MAX_DEEP_PLIES)
-    .map(({ index }) => index);
+    .filter((candidate): candidate is DeepReviewCandidate => candidate !== null);
+  return prioritizeDeepCandidates(candidates);
+}
+
+function deepReviewItems(
+  savedGame: ReviewPositionSource,
+  cache: ReviewCache,
+): AnalysisItemRequest[] {
+  const bookPlies = bookPlyCount(savedGame.sans);
+  const quickIndices = enginePositionIndices(savedGame, bookPlies);
+  const evaluations = new Map<number, Evaluation>();
+  for (const index of quickIndices) {
+    const fen = savedGame.fens[index];
+    const cached = fen ? cache[fen] : undefined;
+    if (!cached) return [];
+    evaluations.set(index, cached.evaluation);
+  }
+
+  const provisional = reviewFromEvaluations(savedGame, evaluations, bookPlies);
+  const requests = new Map<number, 1 | 2>();
+  for (const plyIndex of deepCandidateIndices(savedGame, provisional, evaluations, bookPlies)) {
+    requests.set(plyIndex, 2);
+    const afterIndex = plyIndex + 1;
+    if (quickIndices.includes(afterIndex) && !requests.has(afterIndex)) {
+      requests.set(afterIndex, 1);
+    }
+  }
+  return [...requests].map(([index, multiPv]) => ({
+    key: String(index),
+    fen: savedGame.fens[index] ?? '',
+    multiPv,
+  }));
+}
+
+/** Refinamentos que ainda agregam qualidade ao cache da linha atual. */
+export function pendingDeepReviewItems(
+  savedGame: ReviewPositionSource,
+  cache: ReviewCache,
+): AnalysisItemRequest[] {
+  return deepReviewItems(savedGame, cache).filter((item) => {
+    const cached = cache[item.fen];
+    return cached?.quality !== 'deep' || cached.multiPv < item.multiPv;
+  });
 }
 
 export async function buildGameReview(
@@ -289,15 +356,46 @@ export async function buildGameReview(
   }
   onProgress?.(quickDone, quickIndices.length, 'quick');
 
-  for (const index of quickIndices) {
+  const pendingQuick = quickIndices.filter((index) => !evaluations.has(index));
+  let quickBatch: Record<string, Evaluation> | null = null;
+  if (options.batchEvaluate && pendingQuick.length > 0) {
+    try {
+      quickBatch = await options.batchEvaluate(
+        pendingQuick.map((index) => ({
+          key: String(index),
+          fen: savedGame.fens[index] ?? '',
+          multiPv: 1,
+        })),
+        'fast',
+        (done) => onProgress?.(quickDone + done, quickIndices.length, 'quick'),
+        options.signal,
+        (results) => {
+          let changed = false;
+          for (const [key, evaluation] of Object.entries(results)) {
+            const index = Number(key);
+            const fen = savedGame.fens[index];
+            if (!fen || cache[fen]) continue;
+            cache[fen] = { evaluation, quality: 'quick', multiPv: 1 };
+            changed = true;
+          }
+          if (changed) options.onCache?.({ ...cache });
+        },
+      );
+    } catch (error) {
+      if (isAbortError(error) || options.signal?.aborted) throw error;
+      quickBatch = null;
+    }
+  }
+
+  for (const index of pendingQuick) {
     throwIfReviewAborted(options.signal);
-    if (evaluations.has(index)) continue;
     const fen = savedGame.fens[index];
     if (!fen) throw new Error(`FEN ausente na posição ${index + 1}`);
     // Uma repetição pode ter sido avaliada numa posição anterior deste lote.
     const repeated = cache[fen];
     const evaluation =
       repeated?.evaluation ??
+      quickBatch?.[String(index)] ??
       (await evaluate(fen, {
         limit: { movetime: REVIEW_QUICK_MS },
         multiPv: 1,
@@ -314,15 +412,9 @@ export async function buildGameReview(
     onProgress?.(quickDone, quickIndices.length, 'quick');
   }
 
-  const provisional = reviewFromEvaluations(savedGame, evaluations, bookPlies);
-  const deepRequests = new Map<number, 1 | 2>();
-  for (const plyIndex of deepCandidateIndices(savedGame, provisional, evaluations, bookPlies)) {
-    deepRequests.set(plyIndex, 2);
-    const afterIndex = plyIndex + 1;
-    if (quickIndices.includes(afterIndex) && !deepRequests.has(afterIndex)) {
-      deepRequests.set(afterIndex, 1);
-    }
-  }
+  const deepRequests = new Map(
+    deepReviewItems(savedGame, cache).map((item) => [Number(item.key), item.multiPv]),
+  );
 
   let deepDone = 0;
   const pendingDeep = [...deepRequests].filter(([index, multiPv]) => {
@@ -337,15 +429,50 @@ export async function buildGameReview(
   });
   if (deepRequests.size > 0) onProgress?.(deepDone, deepRequests.size, 'deep');
 
+  let deepBatch: Record<string, Evaluation> | null = null;
+  if (options.batchEvaluate && pendingDeep.length > 0) {
+    try {
+      deepBatch = await options.batchEvaluate(
+        pendingDeep.map(([index, multiPv]) => ({
+          key: String(index),
+          fen: savedGame.fens[index] ?? '',
+          multiPv,
+        })),
+        'deep',
+        (done) => onProgress?.(deepDone + done, deepRequests.size, 'deep'),
+        options.signal,
+        (results) => {
+          let changed = false;
+          for (const [key, evaluation] of Object.entries(results)) {
+            const index = Number(key);
+            const fen = savedGame.fens[index];
+            const requestedMultiPv = deepRequests.get(index);
+            if (!fen || !requestedMultiPv) continue;
+            const existing = cache[fen];
+            if (existing?.quality === 'deep' && existing.multiPv >= requestedMultiPv) continue;
+            cache[fen] = { evaluation, quality: 'deep', multiPv: requestedMultiPv };
+            changed = true;
+          }
+          if (changed) options.onCache?.({ ...cache });
+        },
+      );
+    } catch (error) {
+      if (isAbortError(error) || options.signal?.aborted) throw error;
+      deepBatch = null;
+    }
+  }
+
   for (const [index, multiPv] of pendingDeep) {
     throwIfReviewAborted(options.signal);
     const fen = savedGame.fens[index];
     if (!fen) throw new Error(`FEN ausente na posição ${index + 1}`);
-    const evaluation = await evaluate(fen, {
-      limit: { movetime: REVIEW_DEEP_MS },
-      multiPv,
-      ...(options.signal ? { signal: options.signal } : {}),
-    });
+    const evaluation =
+      deepBatch?.[String(index)] ??
+      (await evaluate(fen, {
+        limit: { movetime: REVIEW_DEEP_MS },
+        multiPv,
+        ...(options.signal ? { signal: options.signal } : {}),
+      }));
     throwIfReviewAborted(options.signal);
     if (!evaluation) throw new Error(`Stockfish não aprofundou a posição ${index + 1}`);
     evaluations.set(index, evaluation);
