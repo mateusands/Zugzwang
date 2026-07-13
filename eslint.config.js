@@ -7,7 +7,14 @@ import globals from 'globals';
 
 export default tseslint.config(
   {
-    ignores: ['**/dist/**', '**/build/**', '**/coverage/**', '**/node_modules/**'],
+    ignores: [
+      '**/dist/**',
+      '**/build/**',
+      '**/coverage/**',
+      '**/node_modules/**',
+      // Binários do Stockfish copiados para public/engine/ (JS minificado).
+      'packages/web/public/engine/**',
+    ],
   },
 
   // Base config for all TypeScript files.
@@ -24,9 +31,9 @@ export default tseslint.config(
     },
   },
 
-  // Node-based packages (engine, server).
+  // Node-based packages (engine, server) e scripts de build (.mjs).
   {
-    files: ['packages/engine/**/*.ts', 'packages/server/**/*.ts'],
+    files: ['packages/engine/**/*.ts', 'packages/server/**/*.ts', '**/scripts/**/*.mjs'],
     languageOptions: {
       globals: { ...globals.node },
     },
