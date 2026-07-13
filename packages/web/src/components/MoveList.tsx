@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { moveRows } from '../replay.js';
 
 interface MoveListProps {
@@ -7,12 +8,23 @@ interface MoveListProps {
   onSelect: (ply: number) => void;
 }
 
-/** Lista de lances em pares numerados; cada meio-lance é clicável. */
+/**
+ * Painel lateral com os lances em pares numerados; cada meio-lance é
+ * clicável e o lance da posição exibida fica sempre visível (auto-scroll).
+ */
 export function MoveList({ sans, currentPly, onSelect }: MoveListProps) {
+  const listRef = useRef<HTMLOListElement>(null);
+
+  // Mantém o lance destacado à vista quando a lista rola.
+  useEffect(() => {
+    const current = listRef.current?.querySelector('[aria-current="true"]');
+    current?.scrollIntoView({ block: 'nearest' });
+  }, [currentPly, sans.length]);
+
   if (sans.length === 0) return null;
 
   return (
-    <ol className="moves" aria-label="Lances da partida">
+    <ol ref={listRef} className="moves" aria-label="Lances da partida">
       {moveRows(sans).map((row) => {
         const { black, blackPly } = row;
         return (

@@ -447,24 +447,42 @@ select {
   font-variant-numeric: tabular-nums;
 }
 
-/* Lista de lances em pares numerados; cada meio-lance é clicável. */
+/* Tabuleiro + painel lateral de lances (à esquerda, estilo chess.com). */
+.game-layout {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.game-layout__main {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+/* Painel de lances em pares numerados; cada meio-lance é clicável. */
 .moves {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.15rem 0.75rem;
-  justify-content: center;
-  max-width: min(90vw, 34rem);
-  max-height: 5.5rem;
+  flex-direction: column;
+  gap: 0.1rem;
+  width: 11rem;
+  max-height: min(92vw, 560px);
   overflow-y: auto;
   margin: 0;
-  padding: 0.25rem 0.5rem;
+  padding: 0.5rem;
+  border-radius: 8px;
+  background: #26262c;
   list-style: none;
+  text-align: left;
 }
 
 .moves__row {
-  display: flex;
+  display: grid;
+  grid-template-columns: 2rem 1fr 1fr;
   gap: 0.2rem;
-  align-items: baseline;
+  align-items: center;
 }
 
 .moves__number {
@@ -475,12 +493,13 @@ select {
 .moves__ply {
   font: inherit;
   font-size: 0.95rem;
-  padding: 0.05rem 0.35rem;
+  padding: 0.1rem 0.35rem;
   border: none;
   border-radius: 6px;
   background: transparent;
   color: #f0f0f2;
   cursor: pointer;
+  text-align: left;
 }
 
 .moves__ply:hover {
@@ -491,6 +510,19 @@ select {
   background: #81b64c;
   color: #10240a;
   font-weight: 700;
+}
+
+/* Tela estreita: painel de lances vai para baixo do tabuleiro. */
+@media (max-width: 880px) {
+  .game-layout {
+    flex-direction: column-reverse;
+    align-items: center;
+  }
+
+  .moves {
+    width: min(92vw, 560px);
+    max-height: 8rem;
+  }
 }
 
 /* Lista de partidas salvas (overlay). O visual base dos botões (Fechar,

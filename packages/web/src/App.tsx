@@ -468,123 +468,125 @@ export function App() {
           </button>
         </div>
       ) : (
-        <>
-          <div className="controls">
-            <button
-              type="button"
-              onClick={handleTakeback}
-              disabled={!playable || game.history.length === 0}
-            >
-              Desfazer
-            </button>
-            <button type="button" onClick={() => setConfirmResign(true)} disabled={over}>
-              Desistir
-            </button>
-            <button type="button" onClick={saved.openList}>
-              Partidas
-            </button>
-            <label className="controls__toggle">
-              <input
-                type="checkbox"
-                checked={showHints}
-                onChange={(event) => setShowHints(event.target.checked)}
-              />{' '}
-              Dicas
-            </label>
-            <label className="controls__toggle">
-              <input
-                type="checkbox"
-                checked={soundOn}
-                onChange={(event) => setSoundOn(event.target.checked)}
-              />{' '}
-              Som
-            </label>
-          </div>
-
-          <CapturedRow
-            pieces={captured.byBlack}
-            color="white"
-            lead={captured.advantage < 0 ? -captured.advantage : 0}
-          />
-
-          <div className="board-area">
-            <BoardView
-              boardRef={boardRef}
-              pieces={displayedPieces}
-              selected={selected}
-              targets={selected ? (game.legalTargets[selected] ?? []) : []}
-              movable={playable ? Object.keys(game.legalTargets) : []}
-              onSquarePointerDown={handleSquarePointerDown}
-              onSquareMouseDown={handleSquareMouseDown}
-              onSquareMouseUp={handleSquareMouseUp}
-              onSquareMouseEnter={handleSquareMouseEnter}
-              highlights={annotations.highlights}
-              arrows={annotations.arrows}
-              dragFrom={drag?.from ?? null}
-              animatedMove={viewing ? null : board.animatedMove}
-              animationMs={board.animationMs}
-              moveSeq={board.seq}
-              showHints={showHints}
-            />
-
-            {pendingPromotion ? (
-              <PromotionPicker onPick={promote} onCancel={() => setPendingPromotion(null)} />
-            ) : null}
-
-            {confirmResign ? (
-              <ConfirmDialog
-                text="Tem certeza de que deseja abandonar?"
-                confirmLabel="Desistir"
-                onConfirm={resign}
-                onCancel={() => setConfirmResign(false)}
-              />
-            ) : null}
-
-            {outcome ? (
-              <EndScreen
-                outcome={outcome}
-                onRematch={() => void startGame(difficulty)}
-                onNewBot={() => setGame(null)}
-              />
-            ) : null}
-          </div>
-
-          <CapturedRow
-            pieces={captured.byWhite}
-            color="black"
-            lead={captured.advantage > 0 ? captured.advantage : 0}
-          />
-
-          {plyCount > 0 ? (
-            <ReplayControls
-              ply={viewPly ?? plyCount}
-              plyCount={plyCount}
-              onFirst={() => goToPly(0)}
-              onPrev={() => stepView(-1)}
-              onNext={() => stepView(+1)}
-              onLast={() => goToPly(null)}
-              onLive={viewing ? () => goToPly(null) : undefined}
-            />
-          ) : null}
-
+        <div className="game-layout">
           <MoveList
             sans={game.history}
             currentPly={viewPly ?? plyCount}
             onSelect={(ply) => goToPly(ply === plyCount ? null : ply)}
           />
 
-          {viewing ? (
-            <p className="status status--muted">
-              Vendo o lance {viewPly} de {plyCount} — o jogo continua ao vivo.
-            </p>
-          ) : null}
-          {!over && !viewing ? (
-            <p className="status">{busy ? 'Bot pensando…' : statusText(game)}</p>
-          ) : null}
-          {!over && !viewing && botMoveOf(game) ? (
-            <p className="status status--muted">Bot jogou: {botMoveOf(game)?.san}</p>
-          ) : null}
-        </>
+          <div className="game-layout__main">
+            <div className="controls">
+              <button
+                type="button"
+                onClick={handleTakeback}
+                disabled={!playable || game.history.length === 0}
+              >
+                Desfazer
+              </button>
+              <button type="button" onClick={() => setConfirmResign(true)} disabled={over}>
+                Desistir
+              </button>
+              <button type="button" onClick={saved.openList}>
+                Partidas
+              </button>
+              <label className="controls__toggle">
+                <input
+                  type="checkbox"
+                  checked={showHints}
+                  onChange={(event) => setShowHints(event.target.checked)}
+                />{' '}
+                Dicas
+              </label>
+              <label className="controls__toggle">
+                <input
+                  type="checkbox"
+                  checked={soundOn}
+                  onChange={(event) => setSoundOn(event.target.checked)}
+                />{' '}
+                Som
+              </label>
+            </div>
+
+            <CapturedRow
+              pieces={captured.byBlack}
+              color="white"
+              lead={captured.advantage < 0 ? -captured.advantage : 0}
+            />
+
+            <div className="board-area">
+              <BoardView
+                boardRef={boardRef}
+                pieces={displayedPieces}
+                selected={selected}
+                targets={selected ? (game.legalTargets[selected] ?? []) : []}
+                movable={playable ? Object.keys(game.legalTargets) : []}
+                onSquarePointerDown={handleSquarePointerDown}
+                onSquareMouseDown={handleSquareMouseDown}
+                onSquareMouseUp={handleSquareMouseUp}
+                onSquareMouseEnter={handleSquareMouseEnter}
+                highlights={annotations.highlights}
+                arrows={annotations.arrows}
+                dragFrom={drag?.from ?? null}
+                animatedMove={viewing ? null : board.animatedMove}
+                animationMs={board.animationMs}
+                moveSeq={board.seq}
+                showHints={showHints}
+              />
+
+              {pendingPromotion ? (
+                <PromotionPicker onPick={promote} onCancel={() => setPendingPromotion(null)} />
+              ) : null}
+
+              {confirmResign ? (
+                <ConfirmDialog
+                  text="Tem certeza de que deseja abandonar?"
+                  confirmLabel="Desistir"
+                  onConfirm={resign}
+                  onCancel={() => setConfirmResign(false)}
+                />
+              ) : null}
+
+              {outcome ? (
+                <EndScreen
+                  outcome={outcome}
+                  onRematch={() => void startGame(difficulty)}
+                  onNewBot={() => setGame(null)}
+                />
+              ) : null}
+            </div>
+
+            <CapturedRow
+              pieces={captured.byWhite}
+              color="black"
+              lead={captured.advantage > 0 ? captured.advantage : 0}
+            />
+
+            {plyCount > 0 ? (
+              <ReplayControls
+                ply={viewPly ?? plyCount}
+                plyCount={plyCount}
+                onFirst={() => goToPly(0)}
+                onPrev={() => stepView(-1)}
+                onNext={() => stepView(+1)}
+                onLast={() => goToPly(null)}
+                onLive={viewing ? () => goToPly(null) : undefined}
+              />
+            ) : null}
+
+            {viewing ? (
+              <p className="status status--muted">
+                Vendo o lance {viewPly} de {plyCount} — o jogo continua ao vivo.
+              </p>
+            ) : null}
+            {!over && !viewing ? (
+              <p className="status">{busy ? 'Bot pensando…' : statusText(game)}</p>
+            ) : null}
+            {!over && !viewing && botMoveOf(game) ? (
+              <p className="status status--muted">Bot jogou: {botMoveOf(game)?.san}</p>
+            ) : null}
+          </div>
+        </div>
       )}
 
       {error ? <p className="error">{error}</p> : null}

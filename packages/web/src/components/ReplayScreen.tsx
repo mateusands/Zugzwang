@@ -61,51 +61,53 @@ export function ReplayScreen({ savedGame, suspendKeys, onBack, onOpenList }: Rep
   }, [suspendKeys, plyCount]);
 
   return (
-    <>
-      <div className="controls">
-        <button type="button" onClick={onBack}>
-          Voltar
-        </button>
-        <button type="button" onClick={onOpenList}>
-          Partidas
-        </button>
-      </div>
-
-      <div className="board-area">
-        <BoardView
-          boardRef={boardRef}
-          pieces={fen ? fenToPieces(fen) : []}
-          selected={null}
-          targets={[]}
-          movable={[]}
-          onSquarePointerDown={noopSquarePointer}
-          onSquareMouseDown={noopSquareButton}
-          onSquareMouseUp={noopSquareButton}
-          onSquareMouseEnter={noopSquare}
-          highlights={EMPTY_ANNOTATIONS.highlights}
-          arrows={EMPTY_ANNOTATIONS.arrows}
-          dragFrom={null}
-          animatedMove={null}
-          animationMs={0}
-          moveSeq={0}
-          showHints={false}
-        />
-      </div>
-
-      <ReplayControls
-        ply={ply}
-        plyCount={plyCount}
-        onFirst={() => setPly(0)}
-        onPrev={() => setPly((current) => clampPly(current - 1, plyCount))}
-        onNext={() => setPly((current) => clampPly(current + 1, plyCount))}
-        onLast={() => setPly(plyCount)}
-      />
-
+    <div className="game-layout">
       <MoveList sans={savedGame.sans} currentPly={ply} onSelect={setPly} />
 
-      <p className="status status--muted">
-        {outcome.title} {outcome.reason} · {savedGame.difficulty}
-      </p>
-    </>
+      <div className="game-layout__main">
+        <div className="controls">
+          <button type="button" onClick={onBack}>
+            Voltar
+          </button>
+          <button type="button" onClick={onOpenList}>
+            Partidas
+          </button>
+        </div>
+
+        <div className="board-area">
+          <BoardView
+            boardRef={boardRef}
+            pieces={fen ? fenToPieces(fen) : []}
+            selected={null}
+            targets={[]}
+            movable={[]}
+            onSquarePointerDown={noopSquarePointer}
+            onSquareMouseDown={noopSquareButton}
+            onSquareMouseUp={noopSquareButton}
+            onSquareMouseEnter={noopSquare}
+            highlights={EMPTY_ANNOTATIONS.highlights}
+            arrows={EMPTY_ANNOTATIONS.arrows}
+            dragFrom={null}
+            animatedMove={null}
+            animationMs={0}
+            moveSeq={0}
+            showHints={false}
+          />
+        </div>
+
+        <ReplayControls
+          ply={ply}
+          plyCount={plyCount}
+          onFirst={() => setPly(0)}
+          onPrev={() => setPly((current) => clampPly(current - 1, plyCount))}
+          onNext={() => setPly((current) => clampPly(current + 1, plyCount))}
+          onLast={() => setPly(plyCount)}
+        />
+
+        <p className="status status--muted">
+          {outcome.title} {outcome.reason} · {savedGame.difficulty}
+        </p>
+      </div>
+    </div>
   );
 }
