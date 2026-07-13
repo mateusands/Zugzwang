@@ -562,7 +562,9 @@ export function App() {
               lead={captured.advantage > 0 ? captured.advantage : 0}
             />
 
-            {plyCount > 0 ? (
+            {/* Slot sempre presente: os controles nascem invisíveis e o
+                tabuleiro não se move quando o primeiro lance os revela. */}
+            <div className={`replay-slot${plyCount === 0 ? ' replay-slot--hidden' : ''}`}>
               <ReplayControls
                 ply={viewPly ?? plyCount}
                 plyCount={plyCount}
@@ -572,19 +574,21 @@ export function App() {
                 onLast={() => goToPly(null)}
                 onLive={viewing ? () => goToPly(null) : undefined}
               />
-            ) : null}
+            </div>
 
-            {viewing ? (
-              <p className="status status--muted">
-                Vendo o lance {viewPly} de {plyCount} — o jogo continua ao vivo.
-              </p>
-            ) : null}
-            {!over && !viewing ? (
-              <p className="status">{busy ? 'Bot pensando…' : statusText(game)}</p>
-            ) : null}
-            {!over && !viewing && botMoveOf(game) ? (
-              <p className="status status--muted">Bot jogou: {botMoveOf(game)?.san}</p>
-            ) : null}
+            {/* Duas linhas de status com altura reservada — nada desloca. */}
+            <p className="status">
+              {viewing
+                ? `Vendo o lance ${viewPly} de ${plyCount} — o jogo continua ao vivo.`
+                : over
+                  ? ''
+                  : busy
+                    ? 'Bot pensando…'
+                    : statusText(game)}
+            </p>
+            <p className="status status--muted">
+              {!over && !viewing && botMoveOf(game) ? `Bot jogou: ${botMoveOf(game)?.san}` : ''}
+            </p>
           </div>
         </div>
       )}

@@ -422,6 +422,7 @@ select {
 .status--muted {
   color: #a0a0a8;
   font-size: 0.95rem;
+  min-height: 1.2em; /* linha reservada: não desloca o layout quando vazia */
 }
 
 .error {
@@ -447,15 +448,24 @@ select {
   font-variant-numeric: tabular-nums;
 }
 
-/* Tabuleiro + painel lateral de lances (à esquerda, estilo chess.com). */
+/* Tabuleiro + painel lateral de lances (à esquerda, estilo chess.com).
+   Colunas laterais SIMÉTRICAS e sempre reservadas: o tabuleiro fica no centro
+   da tela tenha ou não lista de lances — nada se move quando ela aparece. */
 .game-layout {
-  display: flex;
-  gap: 1rem;
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: 12rem auto 12rem;
+  column-gap: 2rem;
+  align-items: start;
   justify-content: center;
 }
 
+.game-layout > .moves {
+  grid-column: 1;
+  justify-self: end;
+}
+
 .game-layout__main {
+  grid-column: 2;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -512,11 +522,19 @@ select {
   font-weight: 700;
 }
 
+/* Espaço reservado dos controles de navegação: nasce invisível e só aparece
+   com o primeiro lance — o tabuleiro não se move. */
+.replay-slot--hidden {
+  visibility: hidden;
+}
+
 /* Tela estreita: painel de lances vai para baixo do tabuleiro. */
-@media (max-width: 880px) {
+@media (max-width: 1024px) {
   .game-layout {
+    display: flex;
     flex-direction: column-reverse;
     align-items: center;
+    gap: 1rem;
   }
 
   .moves {
