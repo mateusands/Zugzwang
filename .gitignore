@@ -27,8 +27,10 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 
-# Claude Code (config/skills locais)
-.claude/
+# Claude Code — as skills SÃO versionadas; o resto de .claude/ é local
+# (config da máquina, roadmap.md, HARDENING.md, sessions/).
+.claude/*
+!.claude/skills/
 .data/
 
 # Partidas salvas pela CLI (artefatos de runtime)
