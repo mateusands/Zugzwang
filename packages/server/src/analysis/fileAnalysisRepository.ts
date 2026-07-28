@@ -16,6 +16,16 @@ interface RepositoryState {
 
 const EMPTY_STATE: RepositoryState = { version: 1, jobs: {}, cache: [] };
 const MAX_CACHE_ENTRIES = 20_000;
+/**
+ * Teto do histórico de jobs. O arquivo é reescrito inteiro a cada save, então
+ * ele não pode crescer sem limite. Jobs `queued`/`running` nunca são
+ * descartados — o `resume()` depende deles depois de um reinício.
+ */
+const MAX_JOBS = 500;
+
+function isResumable(job: StoredAnalysisJob): boolean {
+  return job.status === 'queued' || job.status === 'running';
+}
 
 function clone<T>(value: T): T {
   return structuredClone(value);
@@ -45,17 +55,22 @@ function parseState(raw: string): RepositoryState {
 
 export class FileAnalysisRepository implements AnalysisRepository {
   readonly #path: string;
+  readonly #maxJobs: number;
   #state: RepositoryState | null = null;
   #loading: Promise<void> | null = null;
   #writeChain: Promise<void> = Promise.resolve();
+  /** Escrita já agendada mas ainda não iniciada — chamadores novos a reusam. */
+  #scheduledWrite: Promise<void> | null = null;
 
-  constructor(path: string) {
+  constructor(path: string, options: { maxJobs?: number } = {}) {
     this.#path = path;
+    this.#maxJobs = options.maxJobs ?? MAX_JOBS;
   }
 
   async saveJob(job: StoredAnalysisJob): Promise<void> {
     await this.#ready();
     this.#requiredState().jobs[job.id] = clone(job);
+    this.#pruneJobs();
     await this.#persist();
   }
 
@@ -126,21 +141,56 @@ export class FileAnalysisRepository implements AnalysisRepository {
     return this.#state;
   }
 
-  async #persist(): Promise<void> {
-    const payload = `${JSON.stringify(this.#requiredState())}\n`;
-    const temporary = `${this.#path}.${process.pid}.${randomUUID()}.tmp`;
+  /** Descarta os jobs encerrados mais antigos até caber em `#maxJobs`. */
+  #pruneJobs(): void {
+    const state = this.#requiredState();
+    const ids = Object.keys(state.jobs);
+    let excess = ids.length - this.#maxJobs;
+    if (excess <= 0) return;
+    const evictable = ids
+      .filter((id) => {
+        const job = state.jobs[id];
+        return job !== undefined && !isResumable(job);
+      })
+      .sort((left, right) =>
+        (state.jobs[left]?.updatedAt ?? '').localeCompare(state.jobs[right]?.updatedAt ?? ''),
+      );
+    for (const id of evictable) {
+      if (excess <= 0) break;
+      delete state.jobs[id];
+      excess -= 1;
+    }
+  }
+
+  /**
+   * Grava o estado inteiro, colapsando escritas concorrentes: enquanto uma
+   * escrita está em voo, no máximo UMA outra fica agendada e todos os
+   * chamadores do intervalo esperam por ela. Como o JSON só é serializado
+   * quando a escrita roda, a escrita colapsada já inclui todas as mutações —
+   * elas são aplicadas ao estado em memória antes de chamar este método.
+   */
+  #persist(): Promise<void> {
+    if (this.#scheduledWrite) return this.#scheduledWrite;
     const write = this.#writeChain
       .catch(() => undefined)
       .then(async () => {
-        await mkdir(dirname(this.#path), { recursive: true });
-        try {
-          await writeFile(temporary, payload, 'utf8');
-          await rename(temporary, this.#path);
-        } finally {
-          await rm(temporary, { force: true });
-        }
+        this.#scheduledWrite = null;
+        await this.#writeState();
       });
+    this.#scheduledWrite = write;
     this.#writeChain = write.catch(() => undefined);
-    await write;
+    return write;
+  }
+
+  async #writeState(): Promise<void> {
+    const payload = `${JSON.stringify(this.#requiredState())}\n`;
+    const temporary = `${this.#path}.${process.pid}.${randomUUID()}.tmp`;
+    await mkdir(dirname(this.#path), { recursive: true });
+    try {
+      await writeFile(temporary, payload, 'utf8');
+      await rename(temporary, this.#path);
+    } finally {
+      await rm(temporary, { force: true });
+    }
   }
 }
