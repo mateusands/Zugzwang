@@ -125,11 +125,11 @@ análise com Stockfish nativo, em jobs assíncronos, e o **web** consome esses j
 
 ### Os três pacotes envolvidos
 
-| Onde | Papel |
-|---|---|
-| `@zugzwang/analysis` | **contratos puros** — tipos dos jobs, parsing UCI, políticas de qualidade. Sem I/O, sem processo, sem rede. É a fonte da verdade compartilhada entre server e web |
+| Onde                            | Papel                                                                                                                                                                  |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@zugzwang/analysis`            | **contratos puros** — tipos dos jobs, parsing UCI, políticas de qualidade. Sem I/O, sem processo, sem rede. É a fonte da verdade compartilhada entre server e web      |
 | `packages/server/src/analysis/` | execução: `stockfishProcess` (processo nativo), `analysisJobManager` (fila/pool), `fileAnalysisRepository` (persistência), `analysisRoutes` (HTTP), `runtime` (config) |
-| `packages/web` | consome via `analysisApi.ts` → `reviewAnalysis.ts` / `liveReview.ts` |
+| `packages/web`                  | consome via `analysisApi.ts` → `reviewAnalysis.ts` / `liveReview.ts`                                                                                                   |
 
 **Regra:** shape novo de job/resultado nasce em `@zugzwang/analysis` e é importado dos
 dois lados. Definir o tipo só no server (ou só no web) recria a divergência de contrato
@@ -151,14 +151,14 @@ isso, `createApp()` continua servindo só `/games` e `/analysis/health` responde
 
 ### Configuração (variáveis de ambiente, todas opcionais)
 
-| Variável | Default | Faixa |
-|---|---|---|
-| `ANALYSIS_POOL_SIZE` | 2 | 1–8 |
-| `ANALYSIS_HASH_MB` | 512 | 16–4096 |
-| `ANALYSIS_FAST_DEPTH` | 18 | 12–24 |
-| `ANALYSIS_DEEP_DEPTH` | ≥22 | fast–32 |
-| `ANALYSIS_MAXIMUM_DEPTH` | ≥26 | deep–40 |
-| `ANALYSIS_DATA_PATH` | `.data/analysis.json` | — |
+| Variável                 | Default               | Faixa   |
+| ------------------------ | --------------------- | ------- |
+| `ANALYSIS_POOL_SIZE`     | 2                     | 1–8     |
+| `ANALYSIS_HASH_MB`       | 512                   | 16–4096 |
+| `ANALYSIS_FAST_DEPTH`    | 18                    | 12–24   |
+| `ANALYSIS_DEEP_DEPTH`    | ≥22                   | fast–32 |
+| `ANALYSIS_MAXIMUM_DEPTH` | ≥26                   | deep–40 |
+| `ANALYSIS_DATA_PATH`     | `.data/analysis.json` | —       |
 
 Os valores são clampados na faixa (`boundedInteger` em `runtime.ts`) — valor fora do
 intervalo é corrigido em silêncio, não rejeitado. As profundidades são encadeadas:
