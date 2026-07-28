@@ -36,7 +36,21 @@ function toState(id: string, engine: ChessEngine) {
 interface Game {
   engine: ChessEngine;
   difficulty: Difficulty;
+  lastSeenAt: number;
 }
+
+/** Retenção das partidas em memória. Sem isto o `Map` cresceria sem limite. */
+export interface GameRetentionOptions {
+  /** Teto de partidas residentes; ao estourar, sai a menos recentemente usada. */
+  maxGames?: number;
+  /** Inatividade tolerada antes de a partida ser descartada. */
+  ttlMs?: number;
+  /** Relógio injetável (testes). */
+  now?: () => number;
+}
+
+const DEFAULT_MAX_GAMES = 500;
+const DEFAULT_GAME_TTL_MS = 6 * 60 * 60 * 1000;
 
 /**
  * Build the Express application.
@@ -44,7 +58,9 @@ interface Game {
  * Games are kept in memory, scoped to this app instance (so tests are
  * isolated). All chess logic goes through `@zugzwang/engine`.
  */
-export function createApp(options: { analysisJobs?: AnalysisJobs } = {}): Express {
+export function createApp(
+  options: { analysisJobs?: AnalysisJobs; games?: GameRetentionOptions } = {},
+): Express {
   const app = express();
   app.use(express.json());
 
@@ -58,7 +74,31 @@ export function createApp(options: { analysisJobs?: AnalysisJobs } = {}): Expres
 
   if (options.analysisJobs) registerAnalysisRoutes(app, options.analysisJobs);
 
+  // A ordem de inserção do Map é o próprio LRU: quem é acessado volta para o
+  // fim da fila, e o despejo tira sempre da frente.
   const games = new Map<string, Game>();
+  const maxGames = options.games?.maxGames ?? DEFAULT_MAX_GAMES;
+  const ttlMs = options.games?.ttlMs ?? DEFAULT_GAME_TTL_MS;
+  const now = options.games?.now ?? Date.now;
+
+  /** Descarta as partidas paradas há mais que o TTL. */
+  function sweepExpired(): void {
+    const deadline = now() - ttlMs;
+    for (const [id, game] of games) {
+      if (game.lastSeenAt <= deadline) games.delete(id);
+    }
+  }
+
+  /** Busca a partida e renova sua recência; undefined se expirou ou não existe. */
+  function touch(id: string | undefined): Game | undefined {
+    sweepExpired();
+    const game = id ? games.get(id) : undefined;
+    if (!game || !id) return undefined;
+    game.lastSeenAt = now();
+    games.delete(id);
+    games.set(id, game);
+    return game;
+  }
 
   app.get('/health', (_req: Request, res: Response) => {
     res.json({ status: 'ok', service: 'zugzwang-server' });
@@ -66,15 +106,25 @@ export function createApp(options: { analysisJobs?: AnalysisJobs } = {}): Expres
 
   // Start a new game (human is White, bot is Black).
   app.post('/games', (req: Request, res: Response) => {
+    sweepExpired();
     const id = randomUUID();
     const engine = new ChessEngine();
-    games.set(id, { engine, difficulty: parseDifficulty(req.body?.difficulty) });
+    games.set(id, {
+      engine,
+      difficulty: parseDifficulty(req.body?.difficulty),
+      lastSeenAt: now(),
+    });
+    while (games.size > maxGames) {
+      const oldest = games.keys().next().value;
+      if (oldest === undefined) break;
+      games.delete(oldest);
+    }
     res.status(201).json(toState(id, engine));
   });
 
   app.get('/games/:id', (req: Request, res: Response) => {
     const { id } = req.params;
-    const game = id ? games.get(id) : undefined;
+    const game = touch(id);
     if (!game || !id) {
       res.status(404).json({ error: 'game not found' });
       return;
@@ -85,7 +135,7 @@ export function createApp(options: { analysisJobs?: AnalysisJobs } = {}): Expres
   // Apply the player's move, then let the bot reply.
   app.post('/games/:id/move', (req: Request, res: Response) => {
     const { id } = req.params;
-    const game = id ? games.get(id) : undefined;
+    const game = touch(id);
     if (!game || !id) {
       res.status(404).json({ error: 'game not found' });
       return;
@@ -123,7 +173,7 @@ export function createApp(options: { analysisJobs?: AnalysisJobs } = {}): Expres
   // Takeback: undo the last pair of moves, back to the human's (White's) turn.
   app.post('/games/:id/takeback', (req: Request, res: Response) => {
     const { id } = req.params;
-    const game = id ? games.get(id) : undefined;
+    const game = touch(id);
     if (!game || !id) {
       res.status(404).json({ error: 'game not found' });
       return;

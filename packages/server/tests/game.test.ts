@@ -170,3 +170,54 @@ describe('POST /games/:id/takeback', () => {
     expect(response.status).toBe(404);
   });
 });
+
+/**
+ * Spec: partidas vivem só na memória do processo. Sem despejo, o `Map` cresce
+ * para sempre — toda partida abandonada (aba fechada, refresh) fica residente.
+ * Partidas saem por inatividade (TTL) e, no limite, por número: a menos
+ * recentemente usada primeiro.
+ *
+ * O relógio é injetado para o teste não depender de tempo real.
+ */
+describe('expiração de partidas em memória', () => {
+  it('devolve 404 para uma partida parada além do TTL', async () => {
+    let now = 0;
+    const app = createApp({ games: { ttlMs: 1000, now: () => now } });
+    const created = await createGame(app);
+
+    now = 1001;
+    const response = await request(app).get(`/games/${created.body.id}`);
+
+    expect(response.status).toBe(404);
+  });
+
+  it('mantém viva a partida que continua sendo jogada', async () => {
+    let now = 0;
+    const app = createApp({ games: { ttlMs: 1000, now: () => now } });
+    const created = await createGame(app);
+
+    now = 900;
+    await request(app)
+      .post(`/games/${created.body.id}/move`)
+      .send({ move: { from: 'e2', to: 'e4' } });
+    now = 1500; // 1500 > TTL desde a criação, mas só 600 desde o último lance
+
+    expect((await request(app).get(`/games/${created.body.id}`)).status).toBe(200);
+  });
+
+  it('descarta a partida menos recentemente usada ao estourar o limite', async () => {
+    let now = 0;
+    const app = createApp({ games: { maxGames: 2, now: () => now } });
+    const first = await createGame(app);
+    now = 1;
+    const second = await createGame(app);
+    now = 2;
+    await request(app).get(`/games/${first.body.id}`); // reaquece a primeira
+    now = 3;
+    const third = await createGame(app);
+
+    expect((await request(app).get(`/games/${second.body.id}`)).status).toBe(404);
+    expect((await request(app).get(`/games/${first.body.id}`)).status).toBe(200);
+    expect((await request(app).get(`/games/${third.body.id}`)).status).toBe(200);
+  });
+});
