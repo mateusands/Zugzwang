@@ -273,41 +273,8 @@ export function ReplayScreen({
   }, [suspendKeys, ply, plyCount, navigateTo]);
 
   return (
-    <div className="replay-layout">
-      <MoveList
-        sans={savedGame.sans}
-        currentPly={selectedReviewPly ?? ply}
-        onSelect={selectMove}
-        reviews={reviewEnabled && review ? review.plies : undefined}
-        filter={reviewEnabled ? filter : null}
-      />
-
-      <div className="replay-layout__main">
-        <div className="controls">
-          <button type="button" onClick={onBack}>
-            Voltar
-          </button>
-          <button type="button" onClick={onOpenList}>
-            Partidas
-          </button>
-          <label className="controls__toggle">
-            <input
-              type="checkbox"
-              checked={showEval}
-              onChange={(event) => setShowEval(event.target.checked)}
-            />{' '}
-            Avaliação
-          </label>
-          <label className="controls__toggle">
-            <input
-              type="checkbox"
-              checked={reviewEnabled}
-              onChange={(event) => toggleReview(event.target.checked)}
-            />{' '}
-            Revisar partida
-          </label>
-        </div>
-
+    <div className="game-layout">
+      <div className="game-layout__board">
         <div className="board-row">
           <EvalBar
             evaluation={evaluation.evaluation}
@@ -346,26 +313,77 @@ export function ReplayScreen({
           onNext={() => navigateTo(ply + 1)}
           onLast={() => navigateTo(plyCount)}
         />
-
-        <p className="status status--muted">
-          {reviewing
-            ? reviewProgress.stage === 'deep'
-              ? `Refinando ${reviewProgress.done}/${reviewProgress.total} posições críticas ${reviewSource === 'server' ? 'no servidor' : 'no navegador'}…`
-              : `Analisando ${reviewProgress.done}/${reviewProgress.total} posições ${reviewSource === 'server' ? 'no servidor' : reviewSource === 'browser' ? 'no navegador' : ''}…`
-            : reviewError
-              ? 'Não foi possível revisar a partida.'
-              : `${outcome.title} ${outcome.reason} · ${savedGame.difficulty}`}
-        </p>
       </div>
 
-      {reviewEnabled && review ? (
-        <ReviewPanel
-          review={review}
-          selectedPly={selectedReviewPly ?? 0}
-          filter={filter}
-          onFilter={setFilter}
-        />
-      ) : null}
+      <aside className="side-panel" aria-label="Painel da revisão">
+        <header className="side-panel__header">
+          Revisão da partida <span>{savedGame.difficulty}</span>
+        </header>
+
+        <div className="side-panel__moves">
+          <MoveList
+            sans={savedGame.sans}
+            currentPly={selectedReviewPly ?? ply}
+            onSelect={selectMove}
+            reviews={reviewEnabled && review ? review.plies : undefined}
+            filter={reviewEnabled ? filter : null}
+          />
+        </div>
+
+        <div className="side-panel__footer">
+          {reviewEnabled && review ? (
+            <ReviewPanel
+              review={review}
+              selectedPly={selectedReviewPly ?? 0}
+              filter={filter}
+              onFilter={setFilter}
+            />
+          ) : null}
+
+          <p className="status status--muted">
+            {reviewing
+              ? reviewProgress.stage === 'deep'
+                ? `Refinando ${reviewProgress.done}/${reviewProgress.total} posições críticas ${reviewSource === 'server' ? 'no servidor' : 'no navegador'}…`
+                : `Analisando ${reviewProgress.done}/${reviewProgress.total} posições ${reviewSource === 'server' ? 'no servidor' : reviewSource === 'browser' ? 'no navegador' : ''}…`
+              : reviewError
+                ? 'Não foi possível revisar a partida.'
+                : `${outcome.title} ${outcome.reason}`}
+          </p>
+
+          <div className="side-panel__actions">
+            <button type="button" className="icon-button" onClick={onBack} title="Voltar">
+              <span aria-hidden="true">←</span> Voltar
+            </button>
+            <button
+              type="button"
+              className="icon-button"
+              onClick={onOpenList}
+              title="Partidas salvas"
+            >
+              <span aria-hidden="true">☰</span> Partidas
+            </button>
+          </div>
+
+          <div className="side-panel__toggles">
+            <label className="controls__toggle">
+              <input
+                type="checkbox"
+                checked={showEval}
+                onChange={(event) => setShowEval(event.target.checked)}
+              />{' '}
+              Avaliação
+            </label>
+            <label className="controls__toggle">
+              <input
+                type="checkbox"
+                checked={reviewEnabled}
+                onChange={(event) => toggleReview(event.target.checked)}
+              />{' '}
+              Revisar partida
+            </label>
+          </div>
+        </div>
+      </aside>
     </div>
   );
 }

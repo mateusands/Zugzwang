@@ -763,6 +763,10 @@ export function App() {
           </div>
 
           <aside className="side-panel" aria-label="Painel da partida">
+            <header className="side-panel__header">
+              Jogar contra o bot <span>{difficulty}</span>
+            </header>
+
             <div className="side-panel__moves">
               <MoveList
                 sans={game.history}
@@ -771,74 +775,76 @@ export function App() {
               />
             </div>
 
-            {/* Duas linhas de status com altura reservada — nada desloca. */}
-            <p className="status">
-              {viewing
-                ? `Vendo o lance ${viewPly} de ${plyCount} — o jogo continua ao vivo.`
-                : over
-                  ? ''
-                  : busy
-                    ? 'Bot pensando…'
-                    : statusText(game)}
-            </p>
-            <p className="status status--muted">
-              {!over && !viewing && botMoveOf(game) ? `Bot jogou: ${botMoveOf(game)?.san}` : ''}
-            </p>
+            <div className="side-panel__footer">
+              {/* Duas linhas de status com altura reservada — nada desloca. */}
+              <p className="status">
+                {viewing
+                  ? `Vendo o lance ${viewPly} de ${plyCount} — o jogo continua ao vivo.`
+                  : over
+                    ? ''
+                    : busy
+                      ? 'Bot pensando…'
+                      : statusText(game)}
+              </p>
+              <p className="status status--muted">
+                {!over && !viewing && botMoveOf(game) ? `Bot jogou: ${botMoveOf(game)?.san}` : ''}
+              </p>
 
-            <div className="side-panel__actions">
-              <button
-                type="button"
-                className="icon-button"
-                onClick={handleTakeback}
-                disabled={!playable || game.history.length === 0}
-                title="Desfazer"
-              >
-                <span aria-hidden="true">↩</span> Desfazer
-              </button>
-              <button
-                type="button"
-                className="icon-button"
-                onClick={() => setConfirmResign(true)}
-                disabled={over}
-                title="Desistir"
-              >
-                <span aria-hidden="true">⚑</span> Desistir
-              </button>
-              <button
-                type="button"
-                className="icon-button"
-                onClick={saved.openList}
-                title="Partidas salvas"
-              >
-                <span aria-hidden="true">☰</span> Partidas
-              </button>
-            </div>
+              <div className="side-panel__actions">
+                <button
+                  type="button"
+                  className="icon-button"
+                  onClick={handleTakeback}
+                  disabled={!playable || game.history.length === 0}
+                  title="Desfazer"
+                >
+                  <span aria-hidden="true">↩</span> Desfazer
+                </button>
+                <button
+                  type="button"
+                  className="icon-button"
+                  onClick={() => setConfirmResign(true)}
+                  disabled={over}
+                  title="Desistir"
+                >
+                  <span aria-hidden="true">⚑</span> Desistir
+                </button>
+                <button
+                  type="button"
+                  className="icon-button"
+                  onClick={saved.openList}
+                  title="Partidas salvas"
+                >
+                  <span aria-hidden="true">☰</span> Partidas
+                </button>
+              </div>
 
-            <div className="side-panel__toggles">
-              <label className="controls__toggle">
-                <input
-                  type="checkbox"
-                  checked={showHints}
-                  onChange={(event) => setShowHints(event.target.checked)}
-                />{' '}
-                Dicas
-              </label>
-              <label className="controls__toggle">
-                <input
-                  type="checkbox"
-                  checked={soundOn}
-                  onChange={(event) => setSoundOn(event.target.checked)}
-                />{' '}
-                Som
-              </label>
-              <label className="controls__toggle">
-                <input
-                  type="checkbox"
-                  checked={showEval}
-                  onChange={(event) => setShowEval(event.target.checked)}
-                />{' '}
-                Avaliação
-              </label>
+              <div className="side-panel__toggles">
+                <label className="controls__toggle">
+                  <input
+                    type="checkbox"
+                    checked={showHints}
+                    onChange={(event) => setShowHints(event.target.checked)}
+                  />{' '}
+                  Dicas
+                </label>
+                <label className="controls__toggle">
+                  <input
+                    type="checkbox"
+                    checked={soundOn}
+                    onChange={(event) => setSoundOn(event.target.checked)}
+                  />{' '}
+                  Som
+                </label>
+                <label className="controls__toggle">
+                  <input
+                    type="checkbox"
+                    checked={showEval}
+                    onChange={(event) => setShowEval(event.target.checked)}
+                  />{' '}
+                  Avaliação
+                </label>
+              </div>
             </div>
           </aside>
         </div>
