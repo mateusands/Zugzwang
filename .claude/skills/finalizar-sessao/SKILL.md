@@ -39,10 +39,9 @@ Antes de declarar encerrado, confirme o verde e **relate o resultado real**, sem
 pnpm lint && pnpm build && pnpm test
 ```
 
-⚠️ **Armadilha conhecida:** no Node 26, 3 testes de `packages/web` falham com
-`Cannot read properties of undefined (reading 'clear')` em `localStorage.clear()`. Isso **não é regressão** —
-o Node 26 expõe um `localStorage` nativo experimental que só existe com `--localstorage-file` e tem
-precedência sobre o do jsdom. Confirme que a falha é só essa antes de atribuí-la ao seu código.
+A suíte deve ficar **100% verde** em qualquer versão de Node suportada. O antigo problema do
+`localStorage` no Node 26 está resolvido por `packages/web/tests/setup.ts`; se ele voltar a aparecer,
+é regressão de verdade e não armadilha de ambiente.
 
 ## O que responder ao usuário
 

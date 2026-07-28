@@ -102,10 +102,10 @@ pnpm --filter @zugzwang/web typecheck
 pnpm --filter @zugzwang/web dev      # 5173, e olhe a tela
 ```
 
-⚠️ **Armadilha de ambiente (Node 26):** `appReview.test.tsx` e `appLiveReview.test.tsx` falham com
-`Cannot read properties of undefined (reading 'clear')` em `localStorage.clear()`. **Não é bug do código** —
-o Node 26 expõe um `localStorage` nativo experimental que só existe com `--localstorage-file` e tem
-precedência sobre o do jsdom. Em Node 22/24 passam. Antes de "consertar", confirme que a falha é essa.
+ℹ️ **`localStorage` nos testes:** o Node >= 26 traz um `localStorage` nativo experimental que sombreia
+o do jsdom (o ambiente do Vitest usa o próprio `globalThis` como `window`). `tests/setup.ts` instala um
+Storage em memória quando o global não está utilizável — é por isso que `App.tsx` e `useSavedGames.ts`
+podem seguir acessando o global direto. Se mexer nesse setup, rode a suíte em Node 26 **e** num LTS.
 
 ## Fluxo
 

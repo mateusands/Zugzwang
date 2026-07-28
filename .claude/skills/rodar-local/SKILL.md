@@ -1,6 +1,6 @@
 ---
 name: rodar-local
-description: Subir o Zugzwang localmente (monorepo pnpm — engine, analysis, server 3000, web 5173) e as pegadinhas que custam tempo (binários do Stockfish copiados no prebuild, isolamento cross-origin, Node 26 nos testes). Use ao rodar, testar manualmente ou debugar o ambiente.
+description: Subir o Zugzwang localmente (monorepo pnpm — engine, analysis, server 3000, web 5173) e as pegadinhas que custam tempo (binários do Stockfish copiados no prebuild, isolamento cross-origin, localStorage do Node 26). Use ao rodar, testar manualmente ou debugar o ambiente.
 ---
 
 # Rodar o Zugzwang localmente
@@ -64,16 +64,13 @@ pnpm --filter @zugzwang/engine test    # o mais importante — lógica pura
 pnpm lint                              # 0 warnings toleradas
 ```
 
-⚠️ **Node 26:** 3 testes de `packages/web` (`appReview`, `appLiveReview`) falham com
-`Cannot read properties of undefined (reading 'clear')`. **Não é regressão.** O Node 26 expõe um
-`localStorage` nativo experimental que só existe com a flag `--localstorage-file` e tem precedência sobre
-o que o jsdom instala. Em Node 22/24 passam. Verifique com:
+ℹ️ **Node 26 e `localStorage` — resolvido.** O Node >= 26 expõe um `localStorage` nativo experimental
+que só funciona com `--localstorage-file`. Como o ambiente jsdom do Vitest usa o próprio `globalThis`
+como `window`, esse global sombreava o Storage do jsdom: `localStorage` e `window.localStorage` ficavam
+`undefined` nos testes **e** no código de produção que roda sob eles (`App.tsx`, `useSavedGames.ts`).
 
-```bash
-node -e "console.log(process.version, typeof localStorage)"   # v26+ → 'undefined'
-```
-
-Se quiser a suíte 100% verde, rode o projeto num Node LTS (via `fnm`/`nvm`) em vez de alterar o código.
+`packages/web/tests/setup.ts` instala um Storage em memória quando o global não está utilizável — no-op
+em Node 22/24. A suíte passa em qualquer versão; **não** é mais preciso trocar de Node.
 
 ## Portas
 

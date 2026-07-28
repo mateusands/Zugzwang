@@ -46,7 +46,11 @@ zugzwang/
 │   │       └── analysis/   # backend de análise assíncrona (ver seção própria)
 │   └── web/      # Cliente React + Vite — tabuleiro jogável
 │       ├── src/               # App, BoardView, components/, hooks, helpers puros
+│       │   ├── pieceArt.ts    # arte SVG das peças (Cburnett), vendorizada
+│       │   ├── useLiveReview.ts  # pré-análise em segundo plano durante a partida
+│       │   └── analysisApi.ts    # cliente dos jobs (SSE)
 │       └── tests/             # suíte do pacote (fica na RAIZ, não ao lado do fonte)
+│           └── setup.ts       # Storage em memória p/ o localStorage do Node 26
 ├── tsconfig.base.json      # Config TS compartilhada (cada pacote extende)
 ├── eslint.config.js        # ESLint flat config compartilhado
 ├── .gitattributes          # Fim de linha LF (.bat/.cmd em CRLF)
@@ -96,12 +100,12 @@ pnpm --filter @zugzwang/web dev         # porta 5173
 
 Para jogar no navegador: `pnpm dev` e abra `http://localhost:5173`.
 
-> ⚠️ **Node 26 quebra 3 testes de `packages/web`** (`appReview`, `appLiveReview`) com
-> `Cannot read properties of undefined (reading 'clear')` em `localStorage.clear()`.
-> **Não é regressão:** o Node 26 expõe um `localStorage` nativo experimental que só
-> existe com `--localstorage-file` e tem precedência sobre o que o jsdom instala. Em
-> Node 22/24 a suíte fica 100% verde. Confirme com
-> `node -e "console.log(process.version, typeof localStorage)"` antes de culpar o código.
+> ℹ️ **Node 26 e `localStorage`:** o Node >= 26 expõe um `localStorage` nativo
+> experimental que só funciona com `--localstorage-file`. Como o ambiente jsdom do
+> Vitest usa o próprio `globalThis` como `window`, esse global sombreava o Storage do
+> jsdom e deixava `localStorage` `undefined` nos testes **e** no código de produção que
+> roda sob eles. `packages/web/tests/setup.ts` instala um Storage em memória quando o
+> global não está utilizável (no-op em Node 22/24). A suíte fica verde em qualquer um.
 
 ## Regras de código
 
@@ -129,7 +133,7 @@ análise com Stockfish nativo, em jobs assíncronos, e o **web** consome esses j
 | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `@zugzwang/analysis`            | **contratos puros** — tipos dos jobs, parsing UCI, políticas de qualidade. Sem I/O, sem processo, sem rede. É a fonte da verdade compartilhada entre server e web      |
 | `packages/server/src/analysis/` | execução: `stockfishProcess` (processo nativo), `analysisJobManager` (fila/pool), `fileAnalysisRepository` (persistência), `analysisRoutes` (HTTP), `runtime` (config) |
-| `packages/web`                  | consome via `analysisApi.ts` → `reviewAnalysis.ts` / `liveReview.ts`                                                                                                   |
+| `packages/web`                  | consome via `analysisApi.ts` (SSE) → `useLiveReview.ts` (pré-análise) / `reviewAnalysis.ts` (revisão final)                                                            |
 
 **Regra:** shape novo de job/resultado nasce em `@zugzwang/analysis` e é importado dos
 dois lados. Definir o tipo só no server (ou só no web) recria a divergência de contrato
@@ -140,10 +144,15 @@ que o pacote existe para evitar.
 ```
 GET  /analysis/health          # 503 quando o backend de análise não está montado
 POST /analysis/jobs            # cria job
-GET  /analysis/jobs/:id        # consulta
-POST /analysis/jobs/:id        # atualiza
-GET  /analysis/jobs/:id/events # stream de progresso
+GET  /analysis/jobs/:id        # consulta (só fallback: o web acompanha por SSE)
+DELETE /analysis/jobs/:id      # cancela
+GET  /analysis/jobs/:id/events # stream de progresso (SSE) — caminho normal do web
 ```
+
+⚠️ **Não volte a acompanhar job por polling.** O web já fez isso com um `GET` a cada
+150 ms, o que gerava dezenas de requisições por posição — e uma pré-análise dispara a
+cada lance. O `analysisApi.ts` assina o stream e só cai para consulta quando não há
+`EventSource` (jsdom nos testes) ou a conexão morre antes do snapshot terminal.
 
 As rotas de análise só são registradas quando `createApp()` recebe `analysisJobs` — sem
 isso, `createApp()` continua servindo só `/games` e `/analysis/health` responde `503`.
@@ -162,7 +171,16 @@ isso, `createApp()` continua servindo só `/games` e `/analysis/health` responde
 
 Os valores são clampados na faixa (`boundedInteger` em `runtime.ts`) — valor fora do
 intervalo é corrigido em silêncio, não rejeitado. As profundidades são encadeadas:
-`fast ≤ deep ≤ maximum`.
+`fast ≤ deep ≤ maximum`. `ANALYSIS_POOL_SIZE` é o único **sem** valor de reserva: ausente
+vira `undefined` de propósito, para `computeStockfishResources` dimensionar pelos núcleos.
+Dar um default aqui transforma aquele cálculo em código morto — já aconteceu.
+
+⚠️ **Um thread por motor, não um motor com muitas threads.** Os jobs buscam por
+profundidade fixa (`go depth N`) e, nesse regime, o lazy SMP alarga a busca: thread extra
+visita mais nós para chegar à mesma profundidade e quase não economiza tempo. Medido num
+lote deep de 7 posições numa máquina de 12 núcleos (mediana de repetições): 2 motores × 5
+threads = 57s, 4 × 2 = 21s, 5 × 2 = 19s, **6 × 1 = 13s**. Seis motores usando 6 threads no
+total ganham de dois usando 10.
 
 ⚠️ **A persistência é um arquivo JSON** (`.data/analysis.json`, gitignorado), não um
 banco. Ele cresce com o histórico de jobs e é reescrito inteiro — não é o lugar para
