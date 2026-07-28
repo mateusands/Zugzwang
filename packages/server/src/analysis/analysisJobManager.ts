@@ -296,7 +296,14 @@ export class AnalysisJobManager {
         await this.#repository.saveCache({
           engine: job.engine,
           fen: task.item.fen,
-          quality: { depth: result.depth, multiPv: task.item.multiPv },
+          // A chave é a qualidade que a entrada SATISFAZ, não a profundidade
+          // que o motor relatou. O Stockfish para cedo em posição terminal
+          // (`info depth 0 score mate 0`) e o resultado ainda é exato: guardar
+          // sob `result.depth` criaria uma entrada que nunca mais casa.
+          quality: {
+            depth: Math.max(result.depth, quality.depth),
+            multiPv: task.item.multiPv,
+          },
           evaluation: result,
         });
       }

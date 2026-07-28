@@ -129,6 +129,34 @@ describe('AnalysisJobManager', () => {
     expect(completed.results.cached?.depth).toBe(26);
   });
 
+  /**
+   * Spec: the cache is keyed by the quality the entry *satisfies*, not by the
+   * depth the engine happened to report. Stockfish stops early on a terminal
+   * position (`info depth 0 score mate 0`), so keying by the reported depth
+   * would store an entry that `cacheSatisfies` can never match again.
+   *
+   * Given a position the engine resolves below the requested depth,
+   * When the same position is requested again at the same profile,
+   * Then the cached entry is reused and the analyzer is not called twice.
+   */
+  it('caches a result the engine resolved early under the requested depth', async () => {
+    const repository = new MemoryAnalysisRepository();
+    const analyze = vi.fn(async () => evaluation(0));
+    const manager = new AnalysisJobManager({
+      analyzers: [{ engine: 'stockfish-test', analyze }],
+      repository,
+    });
+    const item = { key: 'mate-on-the-board', fen: FENS[0] ?? '', multiPv: 1 } as const;
+
+    const first = await manager.submit({ profile: 'fast', items: [item] });
+    await terminal(manager, first.id);
+    const second = await manager.submit({ profile: 'fast', items: [item] });
+    const completed = await terminal(manager, second.id);
+
+    expect(analyze).toHaveBeenCalledOnce();
+    expect(completed.results['mate-on-the-board']?.depth).toBe(0);
+  });
+
   it('aborts active work and never starts pending items after cancellation', async () => {
     let started = 0;
     let aborted = false;
