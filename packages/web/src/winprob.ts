@@ -1,29 +1,11 @@
-import type { Score } from './uci.js';
+import type { Score } from '@zugzwang/analysis';
 
-// Centipawns → probabilidade de vitória das brancas, e o rótulo da barra.
-// A conversão é a do lichess (aberta e citável); mate é certeza (0/100).
+// Rótulo da barra de avaliação. A conversão centipawns → probabilidade é a do
+// lichess e vive em `@zugzwang/analysis` (`winPercent`), compartilhada com o
+// server; aqui só a reexportamos para os componentes e cuidamos da formatação,
+// que é assunto de UI.
 
-/** Centipawns além disso não movem a barra de forma perceptível. */
-const CP_CLAMP = 1000;
-/** Constante da curva logística do lichess. */
-const LICHESS_K = 0.00368208;
-
-function clamp(value: number, limit: number): number {
-  return Math.min(Math.max(value, -limit), limit);
-}
-
-/**
- * Win% das brancas (0..100).
- * Fórmula lichess: 50 + 50 * (2 / (1 + exp(-k * cp)) - 1), com cp em ±1000.
- * Mate resolve para 0 ou 100 conforme o vencedor.
- */
-export function winPercent(score: Score): number {
-  if (score.type === 'mate') {
-    return score.winner === 'white' ? 100 : 0;
-  }
-  const cp = clamp(score.value, CP_CLAMP);
-  return 50 + 50 * (2 / (1 + Math.exp(-LICHESS_K * cp)) - 1);
-}
+export { winPercent } from '@zugzwang/analysis';
 
 /**
  * Rótulo curto da barra, do ponto de vista das brancas:

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { formatScore, winPercent } from '../src/winprob.js';
-import type { Score } from '../src/uci.js';
+import type { Score } from '@zugzwang/analysis';
 
 /**
  * Fase 9 — Centipawns → probabilidade de vitória das brancas.

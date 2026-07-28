@@ -1,13 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { parseBestMove, parseInfoLine, turnOfFen } from '@zugzwang/analysis';
 import {
   chooseEngineFlavor,
   goCommand,
-  parseBestMove,
   parseEngineManifest,
-  parseInfoLine,
   positionCommand,
   threadCount,
-  turnOfFen,
 } from '../src/uci.js';
 
 /**
@@ -17,6 +15,10 @@ import {
  * normaliza para o ponto de vista das BRANCAS (+ favorece brancas), a mesma
  * convenção do engine do projeto. Mate carrega o vencedor explícito, porque
  * `score mate 0` (lado a mover já está em mate) não cabe num inteiro assinado.
+ *
+ * O parser em si vem de `@zugzwang/analysis` — o mesmo que o server usa. O web
+ * não mantém cópia: duas implementações do protocolo já haviam divergido, e é
+ * o que os três primeiros casos abaixo travam.
  */
 
 const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -30,7 +32,15 @@ describe('turnOfFen', () => {
 });
 
 describe('parseInfoLine', () => {
-  it('parseia score cp com profundidade e linha principal', () => {
+  it('tolera espaço à esquerda na linha info', () => {
+    expect(parseInfoLine('  info depth 20 multipv 1 score cp 31 pv e2e4', 'white')?.depth).toBe(20);
+  });
+
+  it('rejeita profundidade não inteira', () => {
+    expect(parseInfoLine('info depth 20.5 multipv 1 score cp 31 pv e2e4', 'white')).toBeNull();
+  });
+
+  it('parseia score cp com profundidade, custo da busca e linha principal', () => {
     const line =
       'info depth 12 seldepth 18 multipv 1 score cp 35 nodes 500000 nps 900000 time 550 pv e2e4 e7e5';
 
@@ -38,6 +48,9 @@ describe('parseInfoLine', () => {
       depth: 12,
       multiPv: 1,
       score: { type: 'cp', value: 35 },
+      nodes: 500_000,
+      nps: 900_000,
+      timeMs: 550,
       pv: ['e2e4', 'e7e5'],
     });
   });
@@ -89,6 +102,9 @@ describe('parseInfoLine', () => {
       depth: 12,
       multiPv: 2,
       score: { type: 'cp', value: 20 },
+      nodes: 0,
+      nps: 0,
+      timeMs: 0,
       pv: ['d2d4'],
     });
     expect(parseInfoLine('info depth 12 score cp 35 lowerbound pv e2e4', 'white')).toBeNull();
@@ -107,6 +123,9 @@ describe('parseInfoLine', () => {
       depth: 5,
       multiPv: 1,
       score: { type: 'cp', value: -10 },
+      nodes: 0,
+      nps: 0,
+      timeMs: 0,
       pv: [],
     });
   });
