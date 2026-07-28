@@ -1,4 +1,4 @@
-import type { PieceColor } from './api.js';
+import type { PieceColor, PieceType } from './api.js';
 
 export type MoveClass =
   | 'book'
@@ -51,7 +51,7 @@ export const MOVE_CLASS_ICONS: Record<MoveClass, string> = {
   miss: '×',
 };
 
-export type PieceType = 'p' | 'n' | 'b' | 'r' | 'q' | 'k';
+export type { PieceType };
 
 export interface PlyReviewInput {
   mover: PieceColor;

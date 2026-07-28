@@ -273,7 +273,7 @@ export function ReplayScreen({
   }, [suspendKeys, ply, plyCount, navigateTo]);
 
   return (
-    <div className="game-layout">
+    <div className="replay-layout">
       <MoveList
         sans={savedGame.sans}
         currentPly={selectedReviewPly ?? ply}
@@ -282,7 +282,7 @@ export function ReplayScreen({
         filter={reviewEnabled ? filter : null}
       />
 
-      <div className="game-layout__main">
+      <div className="replay-layout__main">
         <div className="controls">
           <button type="button" onClick={onBack}>
             Voltar

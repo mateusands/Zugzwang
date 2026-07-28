@@ -1,11 +1,15 @@
-import type { Piece, PieceColor } from './api.js';
+import type { Piece, PieceColor, PieceType } from './api.js';
 
 // Transcodificação do 1º campo do FEN (colocação das peças) para a lista que
 // o tabuleiro renderiza. Sem regra de xadrez: o engine continua sendo a única
 // fonte de verdade sobre legalidade — aqui só se lê um formato de texto.
 
 const FILES = 'abcdefgh';
-const PIECE_TYPES = new Set(['p', 'n', 'b', 'r', 'q', 'k']);
+const PIECE_TYPES = new Set<string>(['p', 'n', 'b', 'r', 'q', 'k']);
+
+function isPieceType(value: string): value is PieceType {
+  return PIECE_TYPES.has(value);
+}
 
 /**
  * Convert the piece-placement field of a FEN into the board's piece list.
@@ -27,7 +31,7 @@ export function fenToPieces(fen: string): Piece[] {
         continue;
       }
       const type = char.toLowerCase();
-      if (!PIECE_TYPES.has(type) || file >= 8) return [];
+      if (!isPieceType(type) || file >= 8) return [];
       const color: PieceColor = char === char.toUpperCase() ? 'white' : 'black';
       pieces.push({ square: `${FILES[file]}${rankNumber}`, type, color });
       file += 1;

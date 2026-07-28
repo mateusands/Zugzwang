@@ -1,6 +1,7 @@
-import { glyph } from '../board.js';
+import { PieceIcon } from './PieceIcon.js';
+import type { PieceType } from '../review.js';
 
-const PROMOTION_PIECES = ['q', 'r', 'b', 'n'];
+const PROMOTION_PIECES: PieceType[] = ['q', 'r', 'b', 'n'];
 
 interface PromotionPickerProps {
   onPick: (type: string) => void;
@@ -16,10 +17,10 @@ export function PromotionPicker({ onPick, onCancel }: PromotionPickerProps) {
           <button
             key={type}
             type="button"
-            className="promotion__piece piece--white"
+            className="promotion__piece"
             onClick={() => onPick(type)}
           >
-            {glyph({ square: '', type, color: 'white' })}
+            <PieceIcon type={type} color="white" label={type} />
           </button>
         ))}
       </div>

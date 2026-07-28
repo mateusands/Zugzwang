@@ -4,17 +4,6 @@ export const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'] as const;
 /** Ranks from 8 (top) to 1 (bottom), in render order. */
 export const RANKS = [8, 7, 6, 5, 4, 3, 2, 1] as const;
 
-// Glifos preenchidos para as duas cores; a cor real vem do CSS (piece--white /
-// piece--black), o que dá um contraste muito melhor que os glifos vazados.
-const GLYPHS: Record<string, string> = {
-  p: '♟',
-  n: '♞',
-  b: '♝',
-  r: '♜',
-  q: '♛',
-  k: '♚',
-};
-
 /** The 64 squares in render order: a8 (top-left) .. h1 (bottom-right). */
 export function orderedSquares(): string[] {
   return RANKS.flatMap((rank) => FILES.map((file) => `${file}${rank}`));
@@ -25,9 +14,18 @@ export function pieceMap(pieces: Piece[]): Map<string, Piece> {
   return new Map(pieces.map((piece) => [piece.square, piece]));
 }
 
-/** Unicode glyph (filled) for a piece; colour is applied via CSS. */
-export function glyph(piece: Piece): string {
-  return GLYPHS[piece.type] ?? '?';
+/**
+ * Rótulos de coordenada que a casa exibe. Só a borda recebe: a fileira na
+ * coluna `a`, a coluna na fileira 1 — a mesma convenção do chess.com, que
+ * dispensa margem em volta do tabuleiro.
+ */
+export function squareCoordinates(square: string): { rank: string | null; file: string | null } {
+  const file = square[0] ?? '';
+  const rank = square[1] ?? '';
+  return {
+    rank: file === 'a' ? rank : null,
+    file: rank === '1' ? file : null,
+  };
 }
 
 /** Whether a legal target square is a capture (occupied by a piece). */
@@ -63,7 +61,7 @@ export function slideOffset(from: string, to: string): { dx: number; dy: number 
  * Apply a move to the piece list locally, for an optimistic render (show the
  * player's move immediately, before the server responds). Handles captures,
  * castling (also moves the rook) and en passant (removes the bypassed pawn).
- * Promotion keeps the pawn glyph until the authoritative server state lands.
+ * Promotion keeps the pawn art until the authoritative server state lands.
  */
 export function applyLocalMove(pieces: Piece[], from: string, to: string): Piece[] {
   const mover = pieces.find((piece) => piece.square === from);

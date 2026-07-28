@@ -52,6 +52,7 @@ body {
 /* Botões de UI (controles, telas e diálogos) — NUNCA as casas do tabuleiro,
    que também são <button> (.square) e têm o próprio visual. */
 .controls button,
+.side-panel__actions button,
 .start button,
 .dialog button,
 .endscreen__actions button,
@@ -74,6 +75,7 @@ body {
 }
 
 .controls button:hover:not(:disabled),
+.side-panel__actions button:hover:not(:disabled),
 .start button:hover:not(:disabled),
 .dialog button:hover:not(:disabled),
 .endscreen__actions button:hover:not(:disabled),
@@ -85,6 +87,7 @@ body {
 }
 
 .controls button:active:not(:disabled),
+.side-panel__actions button:active:not(:disabled),
 .start button:active:not(:disabled),
 .dialog button:active:not(:disabled),
 .endscreen__actions button:active:not(:disabled),
@@ -124,10 +127,126 @@ select {
   background: #8fc659;
 }
 
+/* Tela inicial: um card único, centrado, com o mini tabuleiro no topo e a
+   dificuldade em botões segmentados no lugar do <select>. */
 .start {
   display: flex;
-  gap: 1rem;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.9rem;
+  width: min(92vw, 22rem);
+  padding: 1.5rem;
+  border-radius: 14px;
+  border: 1px solid #33333c;
+  background: #26262c;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+}
+
+.start__board {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  width: 8rem;
+  align-self: center;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+}
+
+.start__square {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1 / 1;
+}
+
+.start__square .piece__art {
+  width: 82%;
+  height: 82%;
+}
+
+.start__heading {
+  margin: 0;
+  font-size: 1.15rem;
+  text-align: center;
+}
+
+.start__difficulty {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.start__legend {
+  padding: 0 0 0.45rem;
+  font-size: 0.78rem;
+  color: #a0a0a8;
+}
+
+/* `legend` dentro de um fieldset em grid não ocupa linha própria sozinha. */
+.start__difficulty > .start__legend {
+  grid-column: 1 / -1;
+}
+
+.start__level {
+  display: flex;
+  flex-direction: column;
   align-items: center;
+  gap: 0.1rem;
+  min-width: 0;
+  padding: 0.5rem 0.25rem;
+  border-radius: 8px;
+  border: 1px solid #45454f;
+  background: #32323a;
+  color: #e6e6ec;
+  font: inherit;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.start__level:hover {
+  background: #3c3c46;
+}
+
+.start__level--on {
+  border-color: #81b64c;
+  background: #3a4a2c;
+}
+
+.start__level-name {
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.start__level-hint {
+  font-size: 0.62rem;
+  color: #a8a8b0;
+  text-align: center;
+}
+
+.start__level--on .start__level-hint {
+  color: #c3d7a8;
+}
+
+.start .start__play {
+  padding: 0.7rem 1.1rem;
+  font-size: 1.05rem;
+}
+
+.start .start__secondary {
+  background: transparent;
+  border-color: transparent;
+  color: #a0a0a8;
+  font-weight: 600;
+}
+
+.start .start__secondary:hover:not(:disabled) {
+  background: #32323a;
+  color: #e6e6ec;
+  box-shadow: none;
 }
 
 /* Barra de avaliação + tabuleiro. Calhas simétricas SEMPRE reservadas (a da
@@ -277,18 +396,20 @@ select {
 }
 
 .captured__piece {
-  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.4));
+  display: block;
+  width: 1.15rem;
+  height: 1.15rem;
+  margin-right: -0.38rem; /* sobreposição, como no chess.com */
 }
 
-/* No fundo escuro da linha de capturadas, as peças pretas precisam de um
-   contorno claro para não sumirem (as brancas já têm contorno escuro). */
-.captured .piece--black {
-  color: #35353a;
-  text-shadow:
-    -1px -1px 0 #c2c2c8,
-    1px -1px 0 #c2c2c8,
-    -1px 1px 0 #c2c2c8,
-    1px 1px 0 #c2c2c8;
+.captured__piece:last-of-type {
+  margin-right: 0;
+}
+
+.captured__piece .piece__art {
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.45));
 }
 
 .captured__lead {
@@ -475,6 +596,37 @@ select {
   background: #779556;
 }
 
+/* Coordenadas dentro das casas de borda: fileira no topo-esquerdo da coluna
+   a, coluna no rodapé-direito da fileira 1. */
+.square__coord {
+  position: absolute;
+  font-size: clamp(0.5rem, 1.5vw, 0.72rem);
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: none;
+  user-select: none;
+  z-index: 2;
+}
+
+.square__coord--rank {
+  top: 2px;
+  left: 3px;
+}
+
+.square__coord--file {
+  right: 3px;
+  bottom: 2px;
+}
+
+/* O rótulo usa a cor da casa oposta, como no chess.com. */
+.square--light > .square__coord {
+  color: #779556;
+}
+
+.square--dark > .square__coord {
+  color: #ebecd0;
+}
+
 .square--selected {
   box-shadow: inset 0 0 0 4px #f6c945;
 }
@@ -621,21 +773,21 @@ select {
   cursor: grabbing;
 }
 
-/* Peças brancas: preenchidas de branco com contorno escuro para destacar
-   tanto na casa clara quanto na escura. */
-.piece--white {
-  color: #ffffff;
-  text-shadow:
-    -1px -1px 0 #2a2a2a,
-    1px -1px 0 #2a2a2a,
-    -1px 1px 0 #2a2a2a,
-    1px 1px 0 #2a2a2a,
-    0 2px 3px rgba(0, 0, 0, 0.45);
+.drag-piece .piece__art {
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.5));
 }
 
-.piece--black {
-  color: #191919;
-  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.35);
+/* A arte já traz preenchimento e contorno próprios (o SVG carrega as duas
+   cores), então cor de texto não se aplica — só a sombra que assenta a peça
+   na casa. */
+.piece__art {
+  display: block;
+  width: 88%;
+  height: 88%;
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.35));
+  pointer-events: none;
 }
 
 /* Desliza a peça do bot da casa de origem até a de destino. */
@@ -710,23 +862,139 @@ select {
    da tela tenha ou não lista de lances — nada se move quando ela aparece. */
 .game-layout {
   display: grid;
+  grid-template-columns: auto 20rem;
+  column-gap: 1.25rem;
+  align-items: start;
+  justify-content: center;
+}
+
+/* O replay mantém o arranjo antigo de três colunas: lances à esquerda, painel
+   de revisão à direita e colunas sempre reservadas para o tabuleiro não se
+   mexer quando um dos lados aparece. */
+.replay-layout {
+  display: grid;
   grid-template-columns: 14rem auto 14rem;
   column-gap: 1.25rem;
   align-items: start;
   justify-content: center;
 }
 
-.game-layout > .moves {
+.replay-layout > .moves {
   grid-column: 1;
   justify-self: end;
+  width: 14rem;
+  padding: 0.5rem;
+  border-radius: 8px;
+  background: #26262c;
 }
 
-.game-layout__main {
+.replay-layout__main {
   grid-column: 2;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 1rem;
+}
+
+.game-layout__board {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Painel da partida à direita do tabuleiro: os lances ocupam a sobra e as
+   ações ficam ancoradas no rodapé. */
+.side-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: 20rem;
+  padding: 0.75rem;
+  border-radius: 10px;
+  background: #26262c;
+  text-align: left;
+}
+
+.side-panel__moves {
+  flex: 1;
+  min-height: 12rem;
+}
+
+.side-panel__actions {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.4rem;
+}
+
+.side-panel__toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid #35353d;
+}
+
+/* Seletor casado com `.side-panel__actions button` acima (mesma
+   especificidade, declarado depois) — senão o padding do botão genérico
+   ganha e os três botões estouram a largura do painel. */
+.side-panel__actions .icon-button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  min-width: 0;
+  padding: 0.45rem 0.2rem;
+  font-size: 0.68rem;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.side-panel__actions .icon-button span[aria-hidden='true'] {
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+/* Linha de jogador: avatar, nome e as peças que ele capturou. */
+.player-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: min(92vw, 560px);
+  min-height: 2.1rem;
+}
+
+.player-row__avatar {
+  display: grid;
+  place-items: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  flex: none;
+  border-radius: 5px;
+  background: #3d3d46;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #e6e6ec;
+}
+
+.player-row__name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #e6e6ec;
+  white-space: nowrap;
+}
+
+/* Quem tem a vez ganha um ponto verde discreto ao lado do nome. */
+.player-row--to-move .player-row__name::after {
+  content: '';
+  display: inline-block;
+  width: 0.45rem;
+  height: 0.45rem;
+  margin-left: 0.4rem;
+  border-radius: 50%;
+  background: #81b64c;
+  vertical-align: middle;
 }
 
 .review-panel {
@@ -835,15 +1103,13 @@ select {
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
-  width: 14rem;
+  width: 100%;
   max-height: min(92vw, 560px);
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-gutter: stable;
   margin: 0;
-  padding: 0.5rem;
-  border-radius: 8px;
-  background: #26262c;
+  padding: 0;
   list-style: none;
   text-align: left;
 }
@@ -906,8 +1172,21 @@ select {
     gap: 1rem;
   }
 
-  .game-layout__main {
+  .replay-layout {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .replay-layout__main,
+  .game-layout__board {
     order: 1;
+  }
+
+  .replay-layout > .moves {
+    order: 3;
+    width: min(92vw, 560px);
   }
 
   .review-panel {
@@ -915,9 +1194,16 @@ select {
     width: min(92vw, 560px);
   }
 
-  .moves {
+  .side-panel {
     order: 3;
     width: min(92vw, 560px);
+  }
+
+  .side-panel__moves {
+    min-height: 0;
+  }
+
+  .moves {
     max-height: 8rem;
   }
 

@@ -131,6 +131,39 @@ describe('App live review pre-analysis', () => {
     });
   });
 
+  /**
+   * Spec: a pré-análise em segundo plano não pode falhar em silêncio. Antes o
+   * efeito terminava em `.catch(() => undefined)` e o usuário não tinha como
+   * saber que o backend caiu — a partida seguia sem análise nenhuma, sem sinal.
+   *
+   * Dado que o backend de análise responde indisponível,
+   * Quando a partida é restaurada,
+   * Então a UI avisa que a análise em segundo plano não está rodando.
+   */
+  it('avisa quando o backend de análise está indisponível', async () => {
+    vi.mocked(checkAnalysisBackend).mockResolvedValue({ available: false, engine: null });
+
+    render(<App />);
+
+    const notice = await screen.findByRole('status', { name: 'Análise em segundo plano' });
+    expect(notice.textContent).toMatch(/indispon[íi]vel/i);
+    expect(analyzePositionBatch).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Dado que o backend aceita o job mas a análise falha,
+   * Quando o erro sobe do `analyzePositionBatch`,
+   * Então o mesmo aviso aparece (e não some engolido pelo catch).
+   */
+  it('avisa quando a análise em segundo plano falha', async () => {
+    vi.mocked(analyzePositionBatch).mockRejectedValue(new Error('engine crashed'));
+
+    render(<App />);
+
+    const notice = await screen.findByRole('status', { name: 'Análise em segundo plano' });
+    expect(notice.textContent).toMatch(/indispon[íi]vel/i);
+  });
+
   it('cancels obsolete work and removes reverted positions after takeback', async () => {
     const initial = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}') as Record<
       string,

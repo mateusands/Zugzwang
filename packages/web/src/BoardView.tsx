@@ -1,12 +1,13 @@
 import type { CSSProperties, PointerEvent as ReactPointerEvent, Ref } from 'react';
 import {
-  glyph,
   isCaptureTarget,
   isLightSquare,
   orderedSquares,
   pieceMap,
   slideOffset,
+  squareCoordinates,
 } from './board.js';
+import { PieceIcon } from './components/PieceIcon.js';
 import { arrowPolyline, type Arrow } from './annotations.js';
 import type { Piece } from './api.js';
 import type { MoveClass } from './review.js';
@@ -79,6 +80,7 @@ export function BoardView({
     <div className="board" ref={boardRef} onContextMenu={(event) => event.preventDefault()}>
       {orderedSquares().map((square) => {
         const piece = bySquare.get(square);
+        const coordinates = squareCoordinates(square);
         const offset = animatedMove?.to === square ? slideOffset(animatedMove.from, square) : null;
         const isTarget = showHints && targetSet.has(square);
 
@@ -134,7 +136,17 @@ export function BoardView({
                     : undefined
                 }
               >
-                {glyph(piece)}
+                <PieceIcon type={piece.type} color={piece.color} />
+              </span>
+            ) : null}
+            {coordinates.rank ? (
+              <span className="square__coord square__coord--rank" aria-hidden="true">
+                {coordinates.rank}
+              </span>
+            ) : null}
+            {coordinates.file ? (
+              <span className="square__coord square__coord--file" aria-hidden="true">
+                {coordinates.file}
               </span>
             ) : null}
             {moveFeedback?.to === square ? (

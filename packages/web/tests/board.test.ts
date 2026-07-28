@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyLocalMove,
-  glyph,
   isCaptureTarget,
   isLightSquare,
   orderedSquares,
@@ -18,13 +17,12 @@ describe('helpers do tabuleiro', () => {
     expect(squares[63]).toBe('h1');
   });
 
-  it('mapeia peças por casa e devolve o glifo certo', () => {
+  it('mapeia peças por casa', () => {
     const map = pieceMap([{ square: 'e1', type: 'k', color: 'white' }]);
 
     expect(map.get('e1')?.color).toBe('white');
-    // Glifo preenchido para as duas cores (a cor real vem do CSS).
-    expect(glyph({ square: 'e1', type: 'k', color: 'white' })).toBe('♚');
-    expect(glyph({ square: 'd8', type: 'q', color: 'black' })).toBe('♛');
+    expect(map.get('e1')?.type).toBe('k');
+    expect(map.get('d8')).toBeUndefined();
   });
 
   it('alterna a cor das casas (a1 é escura, h1 é clara)', () => {

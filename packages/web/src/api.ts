@@ -1,10 +1,12 @@
 /** Cliente da API de jogo. O contrato é o JSON do server (não o engine). */
 
 export type PieceColor = 'white' | 'black';
+/** O server só emite estes seis símbolos; estreitar aqui evita cast na UI. */
+export type PieceType = 'p' | 'n' | 'b' | 'r' | 'q' | 'k';
 
 export interface Piece {
   square: string;
-  type: string;
+  type: PieceType;
   color: PieceColor;
 }
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { BoardView, type AnimatedMove } from './BoardView.js';
-import { applyLocalMove, glyph } from './board.js';
+import { applyLocalMove, isLightSquare } from './board.js';
 import {
   EMPTY_ANNOTATIONS,
   toggleArrow,
@@ -14,7 +14,8 @@ import { capturedPieces } from './material.js';
 import { fenToPieces } from './fen.js';
 import { clampPly, stepPly } from './replay.js';
 import { usePieceDrag } from './usePieceDrag.js';
-import { CapturedRow } from './components/CapturedRow.js';
+import { PlayerRow } from './components/PlayerRow.js';
+import { PieceIcon } from './components/PieceIcon.js';
 import { PromotionPicker } from './components/PromotionPicker.js';
 import { ConfirmDialog } from './components/ConfirmDialog.js';
 import { EndScreen } from './components/EndScreen.js';
@@ -27,20 +28,8 @@ import { useSavedGames } from './useSavedGames.js';
 import { useEvaluation } from './useEvaluation.js';
 import { createReviewAnalysisStrategy } from './reviewAnalysis.js';
 import { readSavedGames, type SavedGame } from './savedGames.js';
-import {
-  buildGameReview,
-  isReviewCache,
-  pendingDeepReviewItems,
-  type GameReview,
-  type ReviewCache,
-} from './gameReview.js';
-import { analyzePositionBatch, checkAnalysisBackend } from './analysisApi.js';
-import {
-  isObsoleteLiveBatch,
-  liveReviewItems,
-  mergeLiveReviewResults,
-  pruneLiveReviewCache,
-} from './liveReview.js';
+import { buildGameReview, isReviewCache, type GameReview } from './gameReview.js';
+import { useLiveReview } from './useLiveReview.js';
 import {
   createGame,
   getGame,
@@ -57,6 +46,25 @@ import {
 const DIFFICULTIES: Difficulty[] = ['easy', 'medium', 'hard'];
 const STORAGE_KEY = 'zugzwang:game';
 
+/** Rótulos da tela inicial. A dica descreve a profundidade real da busca. */
+const DIFFICULTY_LABELS: Record<Difficulty, { name: string; hint: string }> = {
+  easy: { name: 'Fácil', hint: 'olha 1 lance à frente' },
+  medium: { name: 'Médio', hint: 'olha 3 lances à frente' },
+  hard: { name: 'Difícil', hint: 'olha 4 lances à frente' },
+};
+
+/** Mini tabuleiro decorativo da tela inicial: 4×2 casas com peças brancas. */
+const START_PREVIEW: { name: string; piece: Piece | null }[] = [
+  { name: 'e1', piece: { square: 'e1', type: 'k', color: 'white' } },
+  { name: 'f1', piece: { square: 'f1', type: 'b', color: 'white' } },
+  { name: 'g1', piece: { square: 'g1', type: 'n', color: 'white' } },
+  { name: 'h1', piece: { square: 'h1', type: 'r', color: 'white' } },
+  { name: 'e2', piece: { square: 'e2', type: 'p', color: 'white' } },
+  { name: 'f2', piece: { square: 'f2', type: 'p', color: 'white' } },
+  { name: 'g2', piece: { square: 'g2', type: 'p', color: 'white' } },
+  { name: 'h2', piece: null },
+];
+
 /** Slide durations: o lance do jogador é rápido; o do bot, mais lento. */
 const PLAYER_SLIDE_MS = 220;
 const BOT_SLIDE_MS = 480;
@@ -67,11 +75,6 @@ interface BoardState {
   animatedMove: AnimatedMove | null;
   animationMs: number;
   seq: number;
-}
-
-interface LiveAnalysisBatch {
-  fens: string[];
-  controller: AbortController;
 }
 
 interface PendingPromotion {
@@ -134,27 +137,16 @@ export function App() {
     stage: 'quick' | 'deep';
   }>({ done: 0, total: 0, stage: 'quick' });
   const [endReviewError, setEndReviewError] = useState(false);
-  const [liveReviewCache, setLiveReviewCache] = useState<ReviewCache>({});
   const endReviewRun = useRef(0);
   const endReviewAbort = useRef<AbortController | null>(null);
-  const liveReviewCacheRef = useRef<ReviewCache>({});
-  const liveAnalysisBatches = useRef(new Map<number, LiveAnalysisBatch>());
-  const liveAnalysisInFlight = useRef(new Set<string>());
-  const liveAnalysisSequence = useRef(0);
-  const liveAnalysisGameId = useRef<string | null>(null);
-  const liveGameFens = useRef<string[]>([]);
   /** Caminho de casas percorrido com o botão direito pressionado. */
   const rightPath = useRef<string[] | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
 
-  liveReviewCacheRef.current = liveReviewCache;
-  liveGameFens.current = game?.fens ?? [];
-
-  const cancelLiveAnalysis = useCallback(() => {
-    for (const batch of liveAnalysisBatches.current.values()) batch.controller.abort();
-    liveAnalysisBatches.current.clear();
-    liveAnalysisInFlight.current.clear();
-  }, []);
+  const over = !!game && (game.gameOver || resigned);
+  const liveReview = useLiveReview(game, over);
+  const liveReviewCache = liveReview.cache;
+  const resetLiveReview = liveReview.reset;
 
   const startGame = useCallback(
     async (level: Difficulty) => {
@@ -170,9 +162,7 @@ export function App() {
       setEndReviewing(false);
       setEndReviewError(false);
       setEndReviewProgress({ done: 0, total: 0, stage: 'quick' });
-      cancelLiveAnalysis();
-      liveAnalysisGameId.current = null;
-      setLiveReviewCache({});
+      resetLiveReview();
       setReplayGame(null);
       setReplayStartsInReview(false);
       setGame(null);
@@ -190,7 +180,7 @@ export function App() {
         setError('Não foi possível falar com o servidor. Ele está rodando? (pnpm dev)');
       }
     },
-    [cancelLiveAnalysis],
+    [resetLiveReview],
   );
 
   // Restaura a partida em andamento ao recarregar a página.
@@ -216,7 +206,7 @@ export function App() {
       .then((state) => {
         setDifficulty(stored.difficulty);
         setResigned(stored.resigned);
-        setLiveReviewCache(isReviewCache(stored.reviewCache) ? stored.reviewCache : {});
+        resetLiveReview(isReviewCache(stored.reviewCache) ? stored.reviewCache : {});
         setGame(state);
         setBoard({
           pieces: state.pieces,
@@ -227,7 +217,9 @@ export function App() {
       })
       .catch(() => localStorage.removeItem(STORAGE_KEY))
       .finally(() => setRestoring(false));
-  }, []);
+    // `resetLiveReview` é estável (useCallback sem dependências mutáveis), então
+    // declará-lo não faz a restauração rodar de novo.
+  }, [resetLiveReview]);
 
   // Persiste a partida atual e o trabalho Stockfish já concluído em segundo plano.
   useEffect(() => {
@@ -345,132 +337,7 @@ export function App() {
 
   const { drag, pos: dragPos, beginDrag, cancelDrag } = usePieceDrag(boardRef, handleDrop);
 
-  const over = !!game && (game.gameOver || resigned);
   const viewing = viewPly !== null;
-
-  // Usa o tempo entre lances para preparar a passagem rápida da revisão.
-  // Jobs continuam em voo entre renders; takeback cancela somente lotes que
-  // contenham posições removidas da linha atual.
-  useEffect(() => {
-    if (!game) {
-      cancelLiveAnalysis();
-      liveAnalysisGameId.current = null;
-      return;
-    }
-    if (liveAnalysisGameId.current !== game.id) {
-      cancelLiveAnalysis();
-      liveAnalysisGameId.current = game.id;
-    }
-
-    for (const [batchId, batch] of liveAnalysisBatches.current) {
-      if (!isObsoleteLiveBatch(batch.fens, game.fens)) continue;
-      batch.controller.abort();
-      for (const fen of batch.fens) liveAnalysisInFlight.current.delete(fen);
-      liveAnalysisBatches.current.delete(batchId);
-    }
-    setLiveReviewCache((current) => pruneLiveReviewCache(current, game.fens));
-
-    if (over) {
-      cancelLiveAnalysis();
-      return;
-    }
-
-    const quickItems = liveReviewItems(
-      game.history,
-      game.fens,
-      liveReviewCacheRef.current,
-      liveAnalysisInFlight.current,
-    );
-    const reviewSource = {
-      sans: game.history,
-      fens: game.fens,
-      // Uma linha em andamento precisa da avaliação de sua posição atual.
-      result: {
-        kind: 'draw' as const,
-        status: 'in_progress',
-        resigned: true,
-        winner: null,
-      },
-    };
-    const initialDeepItems =
-      quickItems.length === 0
-        ? pendingDeepReviewItems(reviewSource, liveReviewCacheRef.current).filter(
-            (item) => !liveAnalysisInFlight.current.has(item.fen),
-          )
-        : [];
-    if (quickItems.length === 0 && initialDeepItems.length === 0) return;
-
-    const controller = new AbortController();
-    const batchId = ++liveAnalysisSequence.current;
-    const trackBatch = (fens: string[]) => {
-      const previous = liveAnalysisBatches.current.get(batchId);
-      for (const fen of previous?.fens ?? []) liveAnalysisInFlight.current.delete(fen);
-      if (fens.length === 0) {
-        liveAnalysisBatches.current.delete(batchId);
-        return;
-      }
-      for (const fen of fens) liveAnalysisInFlight.current.add(fen);
-      liveAnalysisBatches.current.set(batchId, { fens, controller });
-    };
-    const mergeResults = (
-      items: typeof quickItems,
-      results: Parameters<typeof mergeLiveReviewResults>[2],
-      quality: 'quick' | 'deep',
-    ) => {
-      if (controller.signal.aborted) return liveReviewCacheRef.current;
-      const next = pruneLiveReviewCache(
-        mergeLiveReviewResults(liveReviewCacheRef.current, items, results, quality),
-        liveGameFens.current,
-      );
-      liveReviewCacheRef.current = next;
-      setLiveReviewCache(next);
-      return next;
-    };
-    trackBatch((quickItems.length > 0 ? quickItems : initialDeepItems).map((item) => item.fen));
-
-    void checkAnalysisBackend(controller.signal)
-      .then(async (backend) => {
-        if (!backend.available || controller.signal.aborted) return null;
-        let cache = liveReviewCacheRef.current;
-        if (quickItems.length > 0) {
-          const results = await analyzePositionBatch(quickItems, 'fast', {
-            signal: controller.signal,
-            onResults: (partial) => {
-              cache = mergeResults(quickItems, partial, 'quick');
-            },
-          });
-          cache = mergeResults(quickItems, results, 'quick');
-          trackBatch([]);
-        }
-        if (controller.signal.aborted) return null;
-
-        const deepItems = (
-          quickItems.length > 0 ? pendingDeepReviewItems(reviewSource, cache) : initialDeepItems
-        ).filter((item) => !liveAnalysisInFlight.current.has(item.fen));
-        if (deepItems.length === 0) return null;
-        trackBatch(deepItems.map((item) => item.fen));
-
-        // Um item profundo por job reserva o outro processo Stockfish para a
-        // posição fast do próximo lance.
-        for (const item of deepItems) {
-          if (controller.signal.aborted) break;
-          const results = await analyzePositionBatch([item], 'deep', {
-            signal: controller.signal,
-            onResults: (partial) => {
-              cache = mergeResults([item], partial, 'deep');
-            },
-          });
-          cache = mergeResults([item], results, 'deep');
-        }
-        return null;
-      })
-      .catch(() => undefined)
-      .finally(() => {
-        trackBatch([]);
-      });
-  }, [cancelLiveAnalysis, game, over]);
-
-  useEffect(() => () => cancelLiveAnalysis(), [cancelLiveAnalysis]);
 
   const finishedSavedGame = useMemo<SavedGame | null>(() => {
     if (!game || !over) return null;
@@ -741,83 +608,59 @@ export function App() {
         />
       ) : !game ? (
         <div className="start">
-          <label>
-            Dificuldade{' '}
-            <select
-              value={difficulty}
-              onChange={(event) => setDifficulty(event.target.value as Difficulty)}
-            >
-              {DIFFICULTIES.map((level) => (
-                <option key={level} value={level}>
-                  {level}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="start__board" aria-hidden="true">
+            {START_PREVIEW.map((square) => (
+              <span
+                key={square.name}
+                className={`start__square ${
+                  isLightSquare(square.name) ? 'square--light' : 'square--dark'
+                }`}
+              >
+                {square.piece ? (
+                  <PieceIcon type={square.piece.type} color={square.piece.color} />
+                ) : null}
+              </span>
+            ))}
+          </div>
+
+          <h2 className="start__heading">Jogar contra o bot</h2>
+
+          <fieldset className="start__difficulty">
+            <legend className="start__legend">Dificuldade</legend>
+            {DIFFICULTIES.map((level) => (
+              <button
+                key={level}
+                type="button"
+                className={`start__level${difficulty === level ? ' start__level--on' : ''}`}
+                aria-pressed={difficulty === level}
+                onClick={() => setDifficulty(level)}
+              >
+                <span className="start__level-name">{DIFFICULTY_LABELS[level].name}</span>
+                <span className="start__level-hint">{DIFFICULTY_LABELS[level].hint}</span>
+              </button>
+            ))}
+          </fieldset>
+
           <button
             type="button"
-            className="button--primary"
+            className="button--primary start__play"
             onClick={() => void startGame(difficulty)}
           >
             Jogar
           </button>
-          <button type="button" onClick={saved.openList}>
-            Partidas
+          <button type="button" className="start__secondary" onClick={saved.openList}>
+            Minhas partidas
           </button>
         </div>
       ) : (
         <div className="game-layout">
-          <MoveList
-            sans={game.history}
-            currentPly={viewPly ?? plyCount}
-            onSelect={(ply) => goToPly(ply === plyCount ? null : ply)}
-          />
-
-          <div className="game-layout__main">
-            <div className="controls">
-              <button
-                type="button"
-                onClick={handleTakeback}
-                disabled={!playable || game.history.length === 0}
-              >
-                Desfazer
-              </button>
-              <button type="button" onClick={() => setConfirmResign(true)} disabled={over}>
-                Desistir
-              </button>
-              <button type="button" onClick={saved.openList}>
-                Partidas
-              </button>
-              <label className="controls__toggle">
-                <input
-                  type="checkbox"
-                  checked={showHints}
-                  onChange={(event) => setShowHints(event.target.checked)}
-                />{' '}
-                Dicas
-              </label>
-              <label className="controls__toggle">
-                <input
-                  type="checkbox"
-                  checked={soundOn}
-                  onChange={(event) => setSoundOn(event.target.checked)}
-                />{' '}
-                Som
-              </label>
-              <label className="controls__toggle">
-                <input
-                  type="checkbox"
-                  checked={showEval}
-                  onChange={(event) => setShowEval(event.target.checked)}
-                />{' '}
-                Avaliação
-              </label>
-            </div>
-
-            <CapturedRow
-              pieces={captured.byBlack}
-              color="white"
+          <div className="game-layout__board" role="list" aria-label="Jogadores">
+            <PlayerRow
+              name={`Bot — ${difficulty}`}
+              captured={captured.byBlack}
+              capturedColor="white"
               lead={captured.advantage < 0 ? -captured.advantage : 0}
+              toMove={!over && game.turn === 'black'}
             />
 
             <div className="board-row">
@@ -896,10 +739,12 @@ export function App() {
               </div>
             </div>
 
-            <CapturedRow
-              pieces={captured.byWhite}
-              color="black"
+            <PlayerRow
+              name="Você"
+              captured={captured.byWhite}
+              capturedColor="black"
               lead={captured.advantage > 0 ? captured.advantage : 0}
+              toMove={!over && game.turn === 'white'}
             />
 
             {/* Slot sempre presente: os controles nascem invisíveis e o
@@ -913,6 +758,16 @@ export function App() {
                 onNext={() => stepView(+1)}
                 onLast={() => goToPly(null)}
                 onLive={viewing ? () => goToPly(null) : undefined}
+              />
+            </div>
+          </div>
+
+          <aside className="side-panel" aria-label="Painel da partida">
+            <div className="side-panel__moves">
+              <MoveList
+                sans={game.history}
+                currentPly={viewPly ?? plyCount}
+                onSelect={(ply) => goToPly(ply === plyCount ? null : ply)}
               />
             </div>
 
@@ -929,11 +784,74 @@ export function App() {
             <p className="status status--muted">
               {!over && !viewing && botMoveOf(game) ? `Bot jogou: ${botMoveOf(game)?.san}` : ''}
             </p>
-          </div>
+
+            <div className="side-panel__actions">
+              <button
+                type="button"
+                className="icon-button"
+                onClick={handleTakeback}
+                disabled={!playable || game.history.length === 0}
+                title="Desfazer"
+              >
+                <span aria-hidden="true">↩</span> Desfazer
+              </button>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => setConfirmResign(true)}
+                disabled={over}
+                title="Desistir"
+              >
+                <span aria-hidden="true">⚑</span> Desistir
+              </button>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={saved.openList}
+                title="Partidas salvas"
+              >
+                <span aria-hidden="true">☰</span> Partidas
+              </button>
+            </div>
+
+            <div className="side-panel__toggles">
+              <label className="controls__toggle">
+                <input
+                  type="checkbox"
+                  checked={showHints}
+                  onChange={(event) => setShowHints(event.target.checked)}
+                />{' '}
+                Dicas
+              </label>
+              <label className="controls__toggle">
+                <input
+                  type="checkbox"
+                  checked={soundOn}
+                  onChange={(event) => setSoundOn(event.target.checked)}
+                />{' '}
+                Som
+              </label>
+              <label className="controls__toggle">
+                <input
+                  type="checkbox"
+                  checked={showEval}
+                  onChange={(event) => setShowEval(event.target.checked)}
+                />{' '}
+                Avaliação
+              </label>
+            </div>
+          </aside>
         </div>
       )}
 
       {error ? <p className="error">{error}</p> : null}
+
+      {liveReview.unavailable ? (
+        <p className="status status--muted" role="status" aria-label="Análise em segundo plano">
+          Análise em segundo plano indisponível — a revisão da partida vai rodar no navegador, mais
+          devagar.
+        </p>
+      ) : null}
 
       {saved.showList ? (
         <SavedGamesDialog
@@ -946,17 +864,16 @@ export function App() {
 
       {drag && dragPos ? (
         <div
-          className={`drag-piece piece--${drag.piece.color}`}
+          className="drag-piece"
           aria-hidden="true"
           style={{
             left: dragPos.x,
             top: dragPos.y,
             width: drag.cell,
             height: drag.cell,
-            fontSize: drag.cell * 0.8,
           }}
         >
-          {glyph(drag.piece)}
+          <PieceIcon type={drag.piece.type} color={drag.piece.color} />
         </div>
       ) : null}
 
