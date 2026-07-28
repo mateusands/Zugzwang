@@ -6,7 +6,11 @@ import type {
 } from '@zugzwang/analysis';
 
 const API = '/api/analysis';
-const DEFAULT_POLL_INTERVAL_MS = 150;
+/**
+ * Só usado quando não há `EventSource` (ambiente de teste, navegador antigo).
+ * O caminho normal é o stream de eventos, que não consulta em intervalo nenhum.
+ */
+const DEFAULT_POLL_INTERVAL_MS = 500;
 
 export interface AnalysisBackendStatus {
   available: boolean;
@@ -131,6 +135,59 @@ export async function checkAnalysisBackend(signal?: AbortSignal): Promise<Analys
   }
 }
 
+function isTerminal(snapshot: AnalysisJobSnapshot): boolean {
+  return ['completed', 'failed', 'cancelled'].includes(snapshot.status);
+}
+
+/**
+ * Acompanha o job pelo stream SSE do server, que empurra um snapshot a cada
+ * avanço. Resolve com o snapshot terminal; devolve `null` quando não há
+ * `EventSource` ou a conexão cai antes do fim, para o chamador voltar ao
+ * polling.
+ */
+function streamJob(
+  jobId: string,
+  onSnapshot: (snapshot: AnalysisJobSnapshot) => void,
+  signal: AbortSignal | undefined,
+): Promise<AnalysisJobSnapshot | null> {
+  if (typeof EventSource !== 'function') return Promise.resolve(null);
+  return new Promise((resolve, reject) => {
+    const source = new EventSource(`${API}/jobs/${encodeURIComponent(jobId)}/events`);
+    let settled = false;
+    const finish = (run: () => void) => {
+      if (settled) return;
+      settled = true;
+      signal?.removeEventListener('abort', onAbort);
+      source.close();
+      run();
+    };
+    const onAbort = () => finish(() => reject(abortError()));
+
+    source.addEventListener('snapshot', (event: MessageEvent) => {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(String(event.data));
+      } catch {
+        finish(() => resolve(null)); // stream corrompido: cai para o polling
+        return;
+      }
+      if (!isSnapshot(parsed)) {
+        finish(() => resolve(null));
+        return;
+      }
+      onSnapshot(parsed);
+      if (isTerminal(parsed)) finish(() => resolve(parsed));
+    });
+
+    // Erro de stream não é erro do job: o server pode ter encerrado a conexão
+    // antes do snapshot terminal. Volta ao polling para descobrir o desfecho.
+    source.addEventListener('error', () => finish(() => resolve(null)));
+
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) onAbort();
+  });
+}
+
 export async function analyzePositionBatch(
   items: AnalysisItemRequest[],
   profile: AnalysisProfile,
@@ -151,6 +208,8 @@ export async function analyzePositionBatch(
     );
     jobId = submitted.id;
     let snapshot = submitted;
+    /** Enquanto houver stream, não se consulta o job em intervalo nenhum. */
+    let streamed = !isTerminal(submitted);
 
     while (true) {
       options.onProgress?.(snapshot.progress.done, snapshot.progress.total);
@@ -171,6 +230,22 @@ export async function analyzePositionBatch(
       if (snapshot.status === 'cancelled') {
         terminal = true;
         throw abortError();
+      }
+
+      if (streamed) {
+        const final = await streamJob(
+          jobId,
+          (pushed) => {
+            options.onProgress?.(pushed.progress.done, pushed.progress.total);
+            options.onResults?.(pushed.results);
+          },
+          options.signal,
+        );
+        if (final) {
+          snapshot = final;
+          continue;
+        }
+        streamed = false; // sem stream disponível: segue por consulta
       }
 
       await delay(options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS, options.signal);

@@ -97,7 +97,13 @@ motor lite do navegador. O orçamento pode ser ajustado sem alterar código:
 ANALYSIS_POOL_SIZE=2 ANALYSIS_HASH_MB=512 ANALYSIS_MAXIMUM_DEPTH=30 pnpm --filter @zugzwang/server dev
 ```
 
-`ANALYSIS_POOL_SIZE` aceita 1–8 processos, `ANALYSIS_HASH_MB` define o hash total
+`ANALYSIS_POOL_SIZE` aceita 1–8 processos e, por padrão, sobe um motor por
+núcleo livre (no máximo 6) — ou seja, **um thread por motor**. Como os jobs
+buscam por profundidade fixa, thread extra quase não compra tempo: o lazy SMP
+alarga a busca para chegar à mesma profundidade. Medido num lote de 7 posições
+profundas numa máquina de 12 núcleos, mediana de repetições: 57s com 2 motores
+de 5 threads, 21s com 4 de 2, 19s com 5 de 2 e **13s com 6 de 1**.
+`ANALYSIS_HASH_MB` define o hash total
 dividido pelo pool e `ANALYSIS_DATA_PATH` troca o caminho da persistência. A
 profundidade dos perfis pode ser calibrada com `ANALYSIS_FAST_DEPTH` (18),
 `ANALYSIS_DEEP_DEPTH` (22) e `ANALYSIS_MAXIMUM_DEPTH` (26, até 40). Profundidades
@@ -171,6 +177,12 @@ Fases 1–10 concluídas; a próxima etapa é o treinador.
 ## Licença
 
 Distribuído sob a licença [GNU GPL v3](LICENSE).
+
+As peças do tabuleiro são o conjunto **Cburnett**, de Colin M.L. Burnett, obtido
+do [Wikimedia Commons](https://commons.wikimedia.org/wiki/Category:SVG_chess_pieces)
+e multi-licenciado sob GPLv2+, BSD e CC BY-SA 3.0 — usamos sob a GPL. A arte vem
+vendorizada em `packages/web/src/pieceArt.ts` (e não como asset externo, porque a
+página é cross-origin isolated).
 
 A análise de posições usa o [Stockfish](https://stockfishchess.org/) compilado
 para WebAssembly (via [nmrugg/stockfish.js](https://github.com/nmrugg/stockfish.js)),

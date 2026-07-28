@@ -1,9 +1,9 @@
-import type { Piece, PieceColor } from './api.js';
+import type { Piece, PieceColor, PieceType } from './api.js';
 
 const INITIAL_COUNT: Record<string, number> = { p: 8, n: 2, b: 2, r: 2, q: 1, k: 1 };
 const VALUE: Record<string, number> = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
 /** Ordem de exibição das peças capturadas (peão → dama). */
-const DISPLAY_ORDER = ['p', 'n', 'b', 'r', 'q'];
+const DISPLAY_ORDER: PieceType[] = ['p', 'n', 'b', 'r', 'q'];
 
 function countByType(pieces: Piece[], color: PieceColor): Record<string, number> {
   const counts: Record<string, number> = {};
@@ -14,8 +14,8 @@ function countByType(pieces: Piece[], color: PieceColor): Record<string, number>
 }
 
 /** Pieces of `color` missing from the board (i.e. captured by the other side). */
-function missing(counts: Record<string, number>): string[] {
-  const result: string[] = [];
+function missing(counts: Record<string, number>): PieceType[] {
+  const result: PieceType[] = [];
   for (const type of DISPLAY_ORDER) {
     const taken = (INITIAL_COUNT[type] ?? 0) - (counts[type] ?? 0);
     for (let i = 0; i < taken; i++) result.push(type);
@@ -42,8 +42,8 @@ function boardMaterial(pieces: Piece[], color: PieceColor): number {
  *   Black captured; `advantage` — material lead in points (positive = White).
  */
 export function capturedPieces(pieces: Piece[]): {
-  byWhite: string[];
-  byBlack: string[];
+  byWhite: PieceType[];
+  byBlack: PieceType[];
   advantage: number;
 } {
   const byWhite = missing(countByType(pieces, 'black'));

@@ -8,11 +8,10 @@ import {
   type PieceType,
   type PlyReview,
 } from './review.js';
-import { turnOfFen } from './uci.js';
 import type { Piece, PieceColor } from './api.js';
 import type { SavedGame } from './savedGames.js';
 import type { Evaluation } from './stockfishClient.js';
-import type { AnalysisItemRequest, AnalysisProfile } from '@zugzwang/analysis';
+import { turnOfFen, type AnalysisItemRequest, type AnalysisProfile } from '@zugzwang/analysis';
 
 export type MoveCounts = Record<MoveClass, number>;
 

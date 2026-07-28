@@ -1,14 +1,13 @@
 import {
-  goCommand,
   parseBestMove,
   parseInfoLine,
-  positionCommand,
   turnOfFen,
+  winPercent,
   type EngineColor,
+  type EvaluationLine,
   type InfoEvaluation,
-  type Score,
-} from './uci.js';
-import { winPercent } from './winprob.js';
+} from '@zugzwang/analysis';
+import { goCommand, positionCommand } from './uci.js';
 
 // Cliente do Stockfish sobre um transporte abstrato (o Worker real, ou um
 // fake nos testes). Cuida do handshake UCI, do streaming de progresso e do
@@ -22,21 +21,17 @@ export interface EngineTransport {
   terminate(): void;
 }
 
-export interface Evaluation {
-  score: Score;
-  winPercent: number;
-  /** Melhor lance (UCI); null em posição terminal. */
-  bestMove: string | null;
-  depth: number;
+/**
+ * Avaliação do motor do navegador. É a `EvaluationLine` do contrato
+ * compartilhado mais a segunda linha do MultiPV; difere da
+ * `PositionEvaluation` do server por não carregar o custo da busca
+ * (nodes/nps/time), que a UI ao vivo não usa.
+ */
+export interface Evaluation extends EvaluationLine {
   secondLine: EvaluationLine | null;
 }
 
-export interface EvaluationLine {
-  score: Score;
-  winPercent: number;
-  bestMove: string | null;
-  depth: number;
-}
+export type { EvaluationLine };
 
 /** Rejeição de uma avaliação superada por outra (ou pelo dispose). */
 export class EvaluationCancelledError extends Error {
