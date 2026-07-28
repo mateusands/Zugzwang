@@ -172,6 +172,12 @@ Fases 1–10 concluídas; a próxima etapa é o treinador.
 
 Distribuído sob a licença [GNU GPL v3](LICENSE).
 
+As peças do tabuleiro são o conjunto **Cburnett**, de Colin M.L. Burnett, obtido
+do [Wikimedia Commons](https://commons.wikimedia.org/wiki/Category:SVG_chess_pieces)
+e multi-licenciado sob GPLv2+, BSD e CC BY-SA 3.0 — usamos sob a GPL. A arte vem
+vendorizada em `packages/web/src/pieceArt.ts` (e não como asset externo, porque a
+página é cross-origin isolated).
+
 A análise de posições usa o [Stockfish](https://stockfishchess.org/) compilado
 para WebAssembly (via [nmrugg/stockfish.js](https://github.com/nmrugg/stockfish.js)),
 que é software livre sob GPLv3 — por isso este projeto também adota a GPLv3.
