@@ -199,13 +199,30 @@ export class StockfishProcess implements PositionAnalyzer {
   }
 }
 
+/** Teto do pool default; acima disso o ganho por motor extra fica pequeno. */
+const MAX_DEFAULT_POOL = 6;
+/** Piso: mesmo numa máquina pequena, duas posições em paralelo compensam. */
+const MIN_DEFAULT_POOL = 2;
+
 export function computeStockfishResources(
   logicalCpuCount: number,
   requested: { poolSize?: number; totalHashMb?: number } = {},
 ): { poolSize: number; threadsPerEngine: number; hashMbPerEngine: number } {
   const cpuCount = Math.max(1, Math.floor(logicalCpuCount));
   const availableCpu = Math.max(1, cpuCount - 1);
-  const defaultPool = Math.min(2, Math.max(1, Math.floor(cpuCount / 2)));
+  // Um motor por CPU disponível, ou seja, um thread por motor.
+  //
+  // Os jobs buscam por PROFUNDIDADE fixa (`go depth N`), e nesse regime thread
+  // extra quase não compra tempo: o lazy SMP alarga a busca e visita mais nós
+  // para chegar à mesma profundidade. Medido num lote deep de 7 posições numa
+  // máquina de 12 núcleos (mediana de 2–3 repetições):
+  //
+  //   pool 2 (5 threads cada) → 57s    pool 5 (2 threads cada) → 19s
+  //   pool 4 (2 threads cada) → 21s    pool 6 (1 thread  cada) → 13s
+  //
+  // O salto está na passagem para 1 thread por motor, não no número de motores
+  // em si: 6 motores usando 6 threads no total ganham de 2 motores usando 10.
+  const defaultPool = Math.min(MAX_DEFAULT_POOL, Math.max(MIN_DEFAULT_POOL, availableCpu));
   const poolSize = Math.min(
     Math.max(1, Math.floor(requested.poolSize ?? defaultPool)),
     availableCpu,

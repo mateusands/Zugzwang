@@ -123,6 +123,44 @@ describe('StockfishProcess', () => {
 });
 
 describe('Stockfish resource budget', () => {
+  /**
+   * Spec: o pool default escala com a máquina em vez de ficar preso em 2, e
+   * mira UM thread por motor.
+   *
+   * Os jobs buscam por profundidade fixa (`go depth N`), regime em que thread
+   * extra quase não compra tempo — o lazy SMP alarga a busca para chegar à
+   * mesma profundidade. Medido num lote deep de 7 posições numa máquina de 12
+   * núcleos (mediana de 2–3 repetições): 57s com 2 motores de 5 threads, 21s
+   * com 4 de 2, 19s com 5 de 2 e 13s com 6 de 1. O salto está na passagem para
+   * 1 thread por motor, não no número de motores.
+   *
+   * Dado que o tamanho do pool não foi pedido,
+   * Quando os recursos são calculados,
+   * Então há um motor por CPU disponível, até o teto.
+   */
+  it('escala o pool default com os núcleos disponíveis, com um thread por motor', () => {
+    // 12 núcleos: 11 disponíveis (um fica para o resto), teto de 6.
+    expect(computeStockfishResources(12)).toEqual({
+      poolSize: 6,
+      threadsPerEngine: 1,
+      hashMbPerEngine: 85,
+    });
+    // Máquina pequena: 3 disponíveis → 3 motores de 1 thread.
+    expect(computeStockfishResources(4)).toEqual({
+      poolSize: 3,
+      threadsPerEngine: 1,
+      hashMbPerEngine: 170,
+    });
+    // Máquina grande: o teto de 6 segura o pool.
+    expect(computeStockfishResources(32).poolSize).toBe(6);
+    // Dois núcleos: sobra 1 disponível, então 1 motor — o piso não fura o teto de CPU.
+    expect(computeStockfishResources(2)).toEqual({
+      poolSize: 1,
+      threadsPerEngine: 1,
+      hashMbPerEngine: 512,
+    });
+  });
+
   it('reserves one CPU and divides threads/hash across the pool', () => {
     expect(computeStockfishResources(8, { poolSize: 2, totalHashMb: 512 })).toEqual({
       poolSize: 2,

@@ -151,14 +151,14 @@ isso, `createApp()` continua servindo só `/games` e `/analysis/health` responde
 
 ### Configuração (variáveis de ambiente, todas opcionais)
 
-| Variável                 | Default               | Faixa   |
-| ------------------------ | --------------------- | ------- |
-| `ANALYSIS_POOL_SIZE`     | 2                     | 1–8     |
-| `ANALYSIS_HASH_MB`       | 512                   | 16–4096 |
-| `ANALYSIS_FAST_DEPTH`    | 18                    | 12–24   |
-| `ANALYSIS_DEEP_DEPTH`    | ≥22                   | fast–32 |
-| `ANALYSIS_MAXIMUM_DEPTH` | ≥26                   | deep–40 |
-| `ANALYSIS_DATA_PATH`     | `.data/analysis.json` | —       |
+| Variável                 | Default                | Faixa   |
+| ------------------------ | ---------------------- | ------- |
+| `ANALYSIS_POOL_SIZE`     | núcleos livres, teto 6 | 1–8     |
+| `ANALYSIS_HASH_MB`       | 512                    | 16–4096 |
+| `ANALYSIS_FAST_DEPTH`    | 18                     | 12–24   |
+| `ANALYSIS_DEEP_DEPTH`    | ≥22                    | fast–32 |
+| `ANALYSIS_MAXIMUM_DEPTH` | ≥26                    | deep–40 |
+| `ANALYSIS_DATA_PATH`     | `.data/analysis.json`  | —       |
 
 Os valores são clampados na faixa (`boundedInteger` em `runtime.ts`) — valor fora do
 intervalo é corrigido em silêncio, não rejeitado. As profundidades são encadeadas:

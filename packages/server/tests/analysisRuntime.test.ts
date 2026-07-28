@@ -28,6 +28,25 @@ describe('analysis runtime configuration', () => {
     });
   });
 
+  /**
+   * Spec: sem `ANALYSIS_POOL_SIZE`, o tamanho do pool tem de chegar
+   * indefinido ao `computeStockfishResources`, que é quem sabe escalá-lo com
+   * os núcleos da máquina. Fixar 2 aqui — como era antes — passava um valor
+   * explícito adiante e transformava aquele cálculo em código morto: o
+   * servidor rodava com 2 motores em qualquer máquina.
+   *
+   * Dado um ambiente sem a variável,
+   * Quando a configuração é lida,
+   * Então `poolSize` fica indefinido e os demais defaults seguem valendo.
+   */
+  it('deixa o pool indefinido quando o ambiente não pede um tamanho', () => {
+    const config = parseAnalysisRuntimeConfig({}, '/srv');
+
+    expect(config.poolSize).toBeUndefined();
+    expect(config.totalHashMb).toBe(512);
+    expect(config.depths).toEqual({ fast: 18, deep: 22, maximum: 26 });
+  });
+
   it('creates the analyzer pool and returns a resumable manager', async () => {
     const result: PositionEvaluation = {
       score: { type: 'cp', value: 0 },
