@@ -1,88 +1,89 @@
 ---
 name: backend
-description: Desenvolvimento do engine e do server do Zugzwang (TypeScript + Express 4 + estado em memória, minimax, análise Stockfish). Codifica as convenções do repo — regra de ouro do chess.js, pureza e determinismo do engine, contrato REST que casa com o tipo do web, TDD obrigatório. Use ao mexer em packages/engine, packages/analysis ou packages/server.
+description: Zugzwang engine and server development (TypeScript + Express 4 + in-memory state, minimax, Stockfish analysis). Encodes repository conventions — the chess.js golden rule, engine purity and determinism, a REST contract matching web types, mandatory TDD. Use when changing packages/engine, packages/analysis, or packages/server.
 ---
 
 # Backend — `packages/engine` · `packages/analysis` · `packages/server`
 
-Guia para qualquer mexida fora do navegador. Segue o `CLAUDE.md`: **TDD/BDD/SDD obrigatório**,
-**nada de commit/push sem ordem**, **não refatore o que não foi pedido**.
+Guide for changes outside the browser. Follows `CLAUDE.md`: **mandatory TDD/BDD/SDD**,
+**no commit/push without an instruction**, **do not refactor what was not requested**.
 
-**Três pacotes, papéis distintos** (não confunda):
+**Three packages, distinct roles** (do not confuse them):
 
-| Pacote | Papel | Depende de |
-|---|---|---|
-| `@zugzwang/engine` | regras (wrapper `chess.js`), bot minimax+αβ, avaliação, render de texto | nada do domínio |
-| `@zugzwang/analysis` | contratos compartilhados da análise Stockfish | nada do domínio |
-| `@zugzwang/server` | API Express de jogo, estado **em memória** | engine + analysis |
-
----
-
-## Regra de ouro (a que define a arquitetura)
-
-**`chess.js` só existe dentro de `packages/engine/src/engine.ts`.** Todo acesso às regras passa por
-`ChessEngine` e pelos tipos exportados em `@zugzwang/engine`. Se você precisou de um método do `chess.js`
-que o wrapper não expõe, **estenda o wrapper** — não importe a lib no server nem no web. O ponto é manter
-a biblioteca de regras trocável sem refatorar o resto.
+| Package              | Role                                                                   | Depends on         |
+| -------------------- | ---------------------------------------------------------------------- | ------------------ |
+| `@zugzwang/engine`   | rules (`chess.js` wrapper), minimax+αβ bot, evaluation, text rendering | no domain packages |
+| `@zugzwang/analysis` | shared Stockfish analysis contracts                                    | no domain packages |
+| `@zugzwang/server`   | Express game API, **in-memory** state                                  | engine + analysis  |
 
 ---
 
-## Regras não-negociáveis
+## Golden rule (the one that defines the architecture)
 
-1. **O engine é puro e determinístico.** Avaliação, minimax, ordenação de lances e profundidade adaptativa
-   não podem chamar `Math.random()`, `Date.now()`, rede ou disco. Mesma posição + mesma profundidade =
-   mesmo lance, sempre. Se a feature exige tempo ou aleatoriedade, **injete** como parâmetro para o teste
-   poder fixar. Sem isso, teste de bot vira teste instável.
-2. **Não assuma que uma rota existe** — verifique `packages/server/src/app.ts`. O `createApp()` é separado
-   do `listen()` justamente para ser testável sem subir porta; mantenha essa separação.
-3. **Contrato REST casa EXATAMENTE o tipo que o web consome.** O TypeScript não atravessa HTTP — o build
-   passa e a tela quebra. Ao mudar o shape de uma resposta, **grep o tipo no `packages/web/src`** e case
-   campo a campo (`fen`, `turn`, `status`, `gameOver`, `winner`, `pieces`, `legalMoves`, `legalTargets`,
-   `history`, `fens`, `pgn`). Campo renomeado no server e não no web = bug silencioso.
-4. **Valide a entrada antes de entregar ao engine.** FEN, SAN/UCI e id de partida vêm do cliente. FEN
-   malformado que estoure dentro do `chess.js` derruba a rota — valide na borda e responda 400.
-5. **Nunca devolva erro cru.** `res.json({ message: err.message })` vaza stack e detalhe interno. Fallback
-   5xx = payload estático + `console.error`/logger no servidor.
-6. **Estado em memória tem ciclo de vida.** O mapa de partidas cresce para sempre se nada o poda. Ao
-   adicionar estado de longa duração, defina como ele é liberado.
-7. **ESM:** import relativo interno **com extensão `.js`** (ex.: `./engine.js`). Todos os pacotes são
-   `"type": "module"`.
-8. **Sem `any`** — `@typescript-eslint/no-explicit-any` é `error`. Se for realmente inevitável, isole e
-   comente o porquê.
+**`chess.js` exists only inside `packages/engine/src/engine.ts`.** All access to rules goes through
+`ChessEngine` and the types exported by `@zugzwang/engine`. If you need a `chess.js` method the wrapper
+does not expose, **extend the wrapper** — do not import the library in server or web. The point is to
+keep the rules library replaceable without refactoring everything else.
 
 ---
 
-## SDD + BDD + TDD (obrigatório) + validar verde
+## Non-negotiable rules
 
-**Ordem: spec → comportamento → teste falhando → código.** Detalhe completo no `CLAUDE.md`.
+1. **The engine is pure and deterministic.** Evaluation, minimax, move ordering, and adaptive depth
+   cannot call `Math.random()`, `Date.now()`, the network, or disk. Same position + same depth = same
+   move, always. If a feature requires time or randomness, **inject** it as a parameter so tests can
+   fix its value. Otherwise, bot tests become flaky.
+2. **Do not assume a route exists** — check `packages/server/src/app.ts`. `createApp()` is separate
+   from `listen()` specifically to allow tests without opening a port; preserve that separation.
+3. **The REST contract must EXACTLY match the type consumed by web.** TypeScript does not cross HTTP —
+   the build passes and the screen breaks. When changing a response shape, **search for the type in
+   `packages/web/src`** and match field by field (`fen`, `turn`, `status`, `gameOver`, `winner`, `pieces`,
+   `legalMoves`, `legalTargets`, `history`, `fens`, `pgn`). A field renamed in server but not web = silent bug.
+4. **Validate input before handing it to the engine.** FEN, SAN/UCI, and game IDs come from the client.
+   Malformed FEN that throws inside `chess.js` breaks the route — validate at the boundary and return 400.
+5. **Never return raw errors.** `res.json({ message: err.message })` leaks stack and internal details.
+   5xx fallback = static payload + `console.error`/logger on the server.
+6. **In-memory state has a lifecycle.** The game map grows forever if nothing prunes it. When adding
+   long-lived state, define how it is released.
+7. **ESM:** internal relative imports **must include the `.js` extension** (e.g., `./engine.js`). All
+   packages use `"type": "module"`.
+8. **No `any`** — `@typescript-eslint/no-explicit-any` is set to `error`. If truly unavoidable, isolate
+   it and explain why in a comment.
 
-- **SDD:** cabeçalho do arquivo de teste explica o **contrato** e o **porquê** (o bug ou a decisão que o
-  originou). É a spec que sobrevive ao esquecimento — o teste sozinho não explica o motivo.
-- **BDD:** `describe('<módulo>')` → `it('deve <resultado> quando <condição>')`, em português, na linguagem
-  do xadrez (lance, xeque, roque, afogamento) e não na do código. Se o `it` cita nome de variável, você
-  está testando implementação — reescreva.
-- **TDD:** Red (roda e **falha**) → Green (mínimo para passar) → Refactor (limpa mantendo verde).
-- **Alvo prioritário:** lógica pura do engine — regras de movimento, detecção de xeque/mate/afogamento,
-  roque, en passant, promoção, e as funções de avaliação do bot. Toda regra nova precisa de teste, sem
-  exceção (`CLAUDE.md`: "Testes obrigatórios para lógica do engine").
-- **Posição de teste é FEN**, não sequência de lances — FEN deixa o cenário explícito e o teste legível.
+---
+
+## SDD + BDD + TDD (mandatory) + verify green
+
+**Order: spec → behavior → failing test → code.** Full details in `CLAUDE.md`.
+
+- **SDD:** the test file header explains the **contract** and **why** it exists (the bug or decision
+  that led to it). The spec preserves context over time — the test alone does not explain the reason.
+- **BDD:** `describe('<módulo>')` → `it('deve <resultado> quando <condição>')`, in Portuguese, using
+  chess language (move, check, castling, stalemate) rather than code terminology. The templates mean
+  "<module>" and "should <result> when <condition>". If `it` mentions a variable name, it tests
+  implementation — rewrite it.
+- **TDD:** Red (run and **fail**) → Green (minimum needed to pass) → Refactor (clean up while staying green).
+- **Priority target:** pure engine logic — movement rules, check/checkmate/stalemate detection,
+  castling, en passant, promotion, and bot evaluation functions. Every new rule needs a test, without
+  exception (`CLAUDE.md`: "Mandatory tests for engine logic").
+- **Test positions use FEN**, not move sequences — FEN makes the scenario explicit and the test readable.
 
 ```bash
 pnpm --filter @zugzwang/engine test
 pnpm --filter @zugzwang/server test
-pnpm --filter @zugzwang/engine play    # jogar contra o bot no terminal (validação de verdade)
-pnpm lint                              # 0 warnings toleradas
-pnpm build                             # tsc em todos os pacotes
+pnpm --filter @zugzwang/engine play    # play against the bot in the terminal (real validation)
+pnpm lint                              # 0 warnings tolerated
+pnpm build                             # tsc across all packages
 ```
 
-Depois de verde, **exercite de verdade**: o `play` no terminal mostra comportamento que o teste não pega
-(bot que demora demais, lance legal mas absurdo, partida que não termina).
+After green, **exercise it for real**: terminal `play` reveals behavior tests miss
+(a bot taking too long, a legal but absurd move, a game that never ends).
 
-## Fluxo
+## Workflow
 
-1. Leia o módulo alvo + os vizinhos → descubra o padrão antes de inventar um novo.
-2. Mapeie o impacto: quem chama, quem depende, o contrato com o web.
+1. Read the target module + its neighbors → learn the pattern before inventing a new one.
+2. Map the impact: callers, dependencies, the contract with web.
 3. TDD (Red → Green → Refactor).
-4. Verde: lint + build + testes + exercitar no `play`.
-5. **Sem commit/push sem ordem.** Quando mandarem, branch de feature + Conventional Commits
+4. Green: lint + build + tests + exercise through `play`.
+5. **No commit/push without an instruction.** When requested, use a feature branch + Conventional Commits
    (`feat(engine): ...`, `fix(server): ...`).

@@ -1,53 +1,55 @@
 ---
 name: iniciar-sessao
-description: Inicializa a sessão de trabalho no Zugzwang — lê o CLAUDE.md, o estado do git e as pendências da última sessão, em modo somente leitura, e confirma o alinhamento de escopo antes de qualquer código. Use no começo de cada sessão.
+description: Initializes a Zugzwang work session — reads CLAUDE.md, git state, and pending work from the last session in read-only mode, and confirms scope alignment before any coding. Use at the beginning of each session.
 ---
 
-# Inicialização de Sessão — Zugzwang
+# Session Initialization — Zugzwang
 
-Este repo é um **monorepo pnpm** (engine + analysis + server + web) de um jogo de xadrez contra bot.
-A fonte da verdade é **o código**; o `CLAUDE.md` é o mapa.
+This repo is a **pnpm monorepo** (engine + analysis + server + web) for a chess game against a bot.
+The source of truth is **the code**; `CLAUDE.md` is the map.
 
-Antes de qualquer ação, execute os passos de leitura abaixo:
+Before any action, perform the reading steps below:
 
-1. **Leia o `CLAUDE.md` da raiz** — propósito, regra de ouro do engine, stack, convenção de commits e
-   branches, roadmap e a lista de "o que NÃO fazer ainda" (sem CI, sem Docker, sem deploy).
+1. **Read the root `CLAUDE.md`** — purpose, engine golden rule, stack, commit and branch conventions,
+   roadmap, and the "What NOT to do yet" list (no CI, no Docker, no deployment).
 
-2. **Leia a última sessão**, se houver: `.claude/sessions/` (o arquivo mais recente). É onde ficam as
-   pendências deixadas pela sessão anterior.
+2. **Read the latest session**, if available: `.claude/sessions/` (the most recent file). This is where
+   pending work from the previous session is recorded.
 
-3. **Levante o estado real do git** (somente leitura):
+3. **Inspect the actual git state** (read-only):
+
    ```bash
    git status --short && git branch --show-current && git log --oneline -10
    ```
-   Se a branch atual for `main`, lembre: **não se commita direto na `main`** — o fluxo é
-   branch → PR → dono mergeia.
 
-4. **Identifique o pacote alvo** pelo que o usuário pediu e leia só ele + os vizinhos que ele toca.
-   Não carregue os 4 pacotes de uma vez.
+   If the current branch is `main`, remember: **do not commit directly to `main`** — the flow is
+   branch → PR → owner merges.
 
-   | Pacote | Papel |
-   |---|---|
-   | `packages/engine` | regras (wrapper `chess.js`) + bot minimax + análise |
-   | `packages/analysis` | contratos compartilhados de análise Stockfish |
-   | `packages/server` | API Express de jogo (estado em memória) |
-   | `packages/web` | cliente React + Vite (tabuleiro jogável) |
+4. **Identify the target package** from the user's request and read only it + affected neighbors.
+   Do not load all 4 packages at once.
 
-5. **MODO SOMENTE LEITURA:** é proibido alterar código, criar ou apagar arquivo nesta etapa. O objetivo
-   é só carregar contexto e verificar escopo.
+   | Package             | Role                                                |
+   | ------------------- | --------------------------------------------------- |
+   | `packages/engine`   | rules (`chess.js` wrapper) + minimax bot + analysis |
+   | `packages/analysis` | shared Stockfish analysis contracts                 |
+   | `packages/server`   | Express game API (in-memory state)                  |
+   | `packages/web`      | React + Vite client (playable board)                |
 
-## Gates que valem nesta sessão
+5. **READ-ONLY MODE:** changing code, creating files, or deleting files is prohibited at this stage.
+   The goal is only to load context and verify scope.
 
-Confirme explicitamente que estão ativos, porque são as regras que mais custam retrabalho aqui:
+## Gates that apply to this session
 
-- **Regra de ouro:** `chess.js` só pode ser importado em `packages/engine/src/engine.ts`. Em qualquer
-  outro lugar, use `ChessEngine` e os tipos de `@zugzwang/engine`.
-- **TDD/BDD/SDD obrigatório** — spec → cenário → teste vermelho → código. Sem exceção, nem em mudança pequena.
-- **Sem commit/push sem ordem explícita.** Trabalho em branch de feature.
-- **Sem CI, sem Docker, sem deploy** — fase posterior, não implemente por engano.
+Explicitly confirm they are active, because these rules cause the most rework when broken:
 
-## O que responder ao usuário
+- **Golden rule:** `chess.js` may be imported only in `packages/engine/src/engine.ts`. Everywhere else,
+  use `ChessEngine` and the types from `@zugzwang/engine`.
+- **Mandatory TDD/BDD/SDD** — spec → scenario → failing test → code. No exceptions, even for small changes.
+- **No commit/push without an explicit instruction.** Work on a feature branch.
+- **No CI, Docker, or deployment** — later phase; do not implement inadvertently.
 
-Retorno **curto**: em que branch estamos, se o working tree está limpo, qual pacote vamos tocar, e se
-havia pendência da sessão anterior. Confirme numa frase que os gates acima estão ativos. O objetivo é
-só validar o alinhamento antes de codar.
+## What to tell the user
+
+Keep it **short**: current branch, whether the working tree is clean, the target package, and whether
+there was pending work from the previous session. Confirm in one sentence that the gates above are
+active. The goal is only to validate alignment before coding.

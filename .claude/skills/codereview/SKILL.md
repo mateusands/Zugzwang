@@ -1,70 +1,71 @@
 ---
 name: codereview
-description: Code review sênior das últimas mudanças do Zugzwang (working tree ou últimos commits), focado em escalabilidade, manutenibilidade e nas invariantes próprias do repo (regra de ouro do chess.js, pureza do engine, contrato REST server↔web). Apenas reporta com arquivo/linha — não aplica correções.
+description: Senior code review of recent Zugzwang changes (working tree or latest commits), focused on scalability, maintainability, and repository invariants (chess.js golden rule, engine purity, server↔web REST contract). Reports with file/line references only — does not apply fixes.
 ---
 
-# Code Review Sênior — Zugzwang
+# Senior Code Review — Zugzwang
 
-Atue como Engenheiro Sênior e revise criticamente as **últimas mudanças deste repositório**.
+Act as a Senior Engineer and critically review the **latest changes in this repository**.
 
-## Como identificar o que revisar (nesta ordem)
+## How to identify what to review (in this order)
 
-1. Working tree: `git status` + `git diff` + arquivos novos não rastreados relevantes.
-2. Se limpo, os últimos commits da branch atual (`git log` + `git show`).
-3. **Sempre leia o arquivo inteiro** quando o diff sozinho não der contexto — nunca revise um trecho no escuro.
+1. Working tree: `git status` + `git diff` + relevant new untracked files.
+2. If clean, the latest commits on the current branch (`git log` + `git show`).
+3. **Always read the entire file** when the diff alone lacks context — never review a snippet blindly.
 
-## Pilar 1 — Invariantes do Zugzwang (verifique primeiro; são as que quebram o projeto)
+## Pillar 1 — Zugzwang invariants (check first; these are what break the project)
 
-- **Regra de ouro:** o diff importa `chess.js` fora de `packages/engine/src/engine.ts`? Isso é violação
-  estrutural — o ponto do wrapper é manter a biblioteca de regras trocável. Reporte no topo.
-- **Pureza do engine:** `packages/engine` e `packages/analysis` não podem depender de Express, de React,
-  de `window`/`document`, nem de I/O de rede. Se entrou, a lógica de xadrez deixou de ser testável isolada.
-- **`syncEngine`/avaliação continuam determinísticos?** Função de avaliação, minimax e ordenação de lances
-  precisam ser puras — `Math.random()` ou `Date.now()` dentro delas torna o bot não-reproduzível e o teste
-  instável. Se a feature exige aleatoriedade (ex.: variar abertura), ela entra **injetada**, não embutida.
-- **Contrato REST server↔web:** o TypeScript **não** atravessa a fronteira HTTP. Se o diff mudou o shape
-  de uma resposta do server, o tipo consumido no web foi atualizado campo a campo? Essa é a classe de bug
-  nº 1 em qualquer front+back — o build passa e a tela quebra em runtime.
-- **Sem CI/Docker/deploy:** o diff adicionou `.github/workflows`, `Dockerfile` ou script de deploy? É
-  explicitamente fora de escopo no `CLAUDE.md` — reporte.
+- **Golden rule:** does the diff import `chess.js` outside `packages/engine/src/engine.ts`? This is a
+  structural violation — the wrapper exists to keep the rules library replaceable. Report it first.
+- **Engine purity:** `packages/engine` and `packages/analysis` must not depend on Express, React,
+  `window`/`document`, or network I/O. If introduced, chess logic is no longer independently testable.
+- **Are `syncEngine`/evaluation still deterministic?** Evaluation, minimax, and move ordering must
+  remain pure — `Math.random()` or `Date.now()` inside them makes the bot non-reproducible and tests
+  flaky. If a feature needs randomness (e.g., varying openings), it is **injected**, not embedded.
+- **Server↔web REST contract:** TypeScript **does not** cross the HTTP boundary. If the diff changed
+  a server response shape, was the type consumed by web updated field by field? This is the number
+  one bug category in any frontend+backend — the build passes and the screen breaks at runtime.
+- **No CI/Docker/deployment:** did the diff add `.github/workflows`, a `Dockerfile`, or a deployment
+  script? This is explicitly out of scope in `CLAUDE.md` — report it.
 
-## Pilar 2 — Escalabilidade e performance
+## Pillar 2 — Scalability and performance
 
-- O bot roda no **caminho quente** (minimax + poda alfa-beta). Alocação dentro do laço de busca, clonagem
-  de tabuleiro por nó, ou `array.includes` em estrutura grande custam profundidade real de busca.
-- Estado do server é **em memória**: alguma estrutura cresce sem limite (mapa de partidas nunca podado)?
-  Num processo de longa duração isso é vazamento.
-- No web, o Stockfish roda em **Web Worker**. Trabalho pesado que voltou para a thread principal trava o
-  tabuleiro — verifique se a análise continua fora da UI thread.
-- `useEffect` sem cleanup que dispare análise a cada render = trabalho duplicado e corrida entre respostas
-  obsoletas. Toda análise assíncrona precisa ser cancelável/descartável quando a posição muda.
+- The bot runs on the **hot path** (minimax + alpha-beta pruning). Allocations inside the search loop,
+  board cloning per node, or `array.includes` on large structures cost real search depth.
+- Server state is **in memory**: does any structure grow without bounds (a game map never pruned)?
+  In a long-running process, that is a leak.
+- In web, Stockfish runs in a **Web Worker**. Heavy work moved back to the main thread freezes the
+  board — check that analysis stays outside the UI thread.
+- A `useEffect` without cleanup that starts analysis on every render = duplicated work and races
+  between stale responses. Every asynchronous analysis must be cancellable/discardable when the position changes.
 
-## Pilar 3 — Manutenibilidade
+## Pillar 3 — Maintainability
 
-- Clean Code e SOLID: responsabilidades misturadas, acoplamento alto, complexidade ciclomática desnecessária.
-- **TDD foi seguido?** Código de feature novo sem teste correspondente é violação do `CLAUDE.md`. O teste
-  descreve **comportamento** (`it('deve <resultado> quando <condição>')`) ou detalhe de implementação?
-- Nomes em **inglês** no código (convenção do repo); comentário e doc podem ser em português.
-- **ESM:** import relativo interno precisa da extensão `.js`. Sem ela, quebra no runtime compilado.
+- Clean Code and SOLID: mixed responsibilities, high coupling, unnecessary cyclomatic complexity.
+- **Was TDD followed?** New feature code without a corresponding test violates `CLAUDE.md`. Does the
+  test describe **behavior** (`it('deve <resultado> quando <condição>')`, meaning "should <result>
+  when <condition>") or an implementation detail?
+- Names in **English** in code (repository convention); comments and docs may be in Portuguese.
+- **ESM:** internal relative imports require the `.js` extension. Without it, compiled runtime breaks.
 
-## Pilar 4 — Robustez e segurança de aplicação
+## Pillar 4 — Application robustness and security
 
-O server é local e sem autenticação, então **não** aplique aqui o checklist de API multi-tenant. O que
-importa de fato neste repo:
+The server is local and unauthenticated, so **do not** apply a multi-tenant API checklist here.
+What actually matters in this repository:
 
-- **Entrada não confiável:** lance/FEN/id de partida vindos do cliente são validados antes de chegar ao
-  engine? FEN malformado que estoure exceção não tratada derruba a rota.
-- **Erro cru vazando:** `catch` que devolve `err.message`/stack ao cliente. Devolva código estático e
-  logue o detalhe no servidor.
-- **`localStorage`:** dado persistido é lido de volta com `try/catch` e validação? JSON corrompido de uma
-  versão anterior do schema não pode quebrar o boot do app.
-- **Dependência nova** em algum `package.json`? Reporte pacote + licença. ⚠️ **Este repo é GPLv3** (por
-  empacotar o Stockfish) — atenção a licença incompatível.
-- **`dangerouslySetInnerHTML`** ou injeção de HTML com conteúdo dinâmico (ex.: PGN importado) sem sanitizar.
+- **Untrusted input:** are client moves/FEN/game IDs validated before reaching the engine? Malformed
+  FEN throwing an unhandled exception breaks the route.
+- **Raw error leakage:** a `catch` returning `err.message`/stack to the client. Return a static code
+  and log details on the server.
+- **`localStorage`:** are persisted data read back with `try/catch` and validation? Corrupt JSON from
+  an earlier schema version must not break app startup.
+- **New dependency** in any `package.json`? Report the package + license. ⚠️ **This repo is GPLv3**
+  (because it bundles Stockfish) — watch for incompatible licenses.
+- **`dangerouslySetInnerHTML`** or HTML injection with dynamic content (e.g., imported PGN) without sanitization.
 
-## Formato da resposta
+## Response format
 
-- Nada de micro-otimização irrelevante.
-- Para cada problema: **arquivo e linha**, o impacto a longo prazo, e o código refatorado demonstrando a
-  solução. Ordene por severidade — violação de invariante primeiro.
-- **Apenas revise e reporte. Não aplique as correções** sem ordem explícita.
+- No irrelevant micro-optimizations.
+- For each issue: **file and line**, long-term impact, and refactored code demonstrating the solution.
+  Sort by severity — invariant violations first.
+- **Review and report only. Do not apply fixes** without an explicit instruction.

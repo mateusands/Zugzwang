@@ -1,56 +1,56 @@
 # Zugzwang
 
-> Um jogo de xadrez contra um bot, escrito em TypeScript.
+> A chess game against a bot, written in TypeScript.
 
-<!-- Badges de placeholder — CI ainda não existe (ver Roadmap).
+<!-- Placeholder badges — CI does not exist yet (see Roadmap).
 [![build](https://img.shields.io/badge/build-pending-lightgrey)](#)
 -->
 
-![status](https://img.shields.io/badge/status-em%20desenvolvimento-yellow)
+![status](https://img.shields.io/badge/status-in%20development-yellow)
 ![license](https://img.shields.io/badge/license-GPLv3-blue)
 
-## Sobre o projeto
+## About the project
 
-**Zugzwang** — do termo enxadrístico alemão para a situação em que qualquer
-lance disponível piora a própria posição — é um projeto de portfólio de longo
-prazo: um jogo de xadrez jogável contra um bot, construído em fases, do zero.
+**Zugzwang** — the German chess term for a situation where any available move
+worsens your position — is a long-term portfolio project: a playable chess game
+against a bot, built from scratch in phases.
 
-O foco não é só o produto final, mas o processo: arquitetura limpa, testes,
-convenções de commit/branch/PR e evolução incremental documentada.
+The focus is on both the final product and the process: clean architecture,
+tests, commit/branch/PR conventions, and documented incremental development.
 
-### Principais decisões técnicas
+### Key technical decisions
 
-- **Monorepo (pnpm workspaces).** Engine, servidor e cliente compartilham
-  tipos e ferramentas (TypeScript, ESLint, Prettier) e evoluem juntos, sem o
-  atrito de repositórios separados.
-- **`chess.js` isolado num wrapper.** As regras do xadrez são consumidas apenas
-  através da classe `ChessEngine` (em `packages/engine`). Nenhum outro pacote
-  importa `chess.js` diretamente, o que permite trocar ou complementar a
-  biblioteca de regras no futuro sem refatorar o resto do código.
-- **Separação engine / server / web.** A lógica de jogo e do bot vive no
-  `engine`, agnóstica a HTTP e a UI. O `server` expõe; o `web` desenha.
-- **TypeScript estrito e testes desde o início.** Toda a base já roda com
-  `strict` ligado e `any` proibido por lint.
+- **Monorepo (pnpm workspaces).** Engine, server, and client share types and
+  tools (TypeScript, ESLint, Prettier) and evolve together without the friction
+  of separate repositories.
+- **`chess.js` isolated in a wrapper.** Chess rules are accessed only through
+  the `ChessEngine` class (in `packages/engine`). No other package imports
+  `chess.js` directly, allowing the rules library to be replaced or extended
+  later without refactoring the rest of the code.
+- **Engine / server / web separation.** Game and bot logic lives in `engine`,
+  independent of HTTP and the UI. `server` exposes it; `web` renders it.
+- **Strict TypeScript and tests from the start.** The entire codebase already
+  runs with `strict` enabled and `any` prohibited by lint.
 
 ## Stack
 
-| Pacote               | Tecnologia                              | Papel                                             |
-| -------------------- | --------------------------------------- | ------------------------------------------------- |
-| `@zugzwang/analysis` | TypeScript                              | Contratos, parser UCI e política de qualidade     |
-| `@zugzwang/engine`   | TypeScript, chess.js, Vitest            | Regras do xadrez e bot minimax                    |
-| `@zugzwang/server`   | TypeScript, Express, Stockfish 18/WASM  | API de jogo e fila assíncrona de análise profunda |
-| `@zugzwang/web`      | TypeScript, React, Vite, Stockfish/WASM | Tabuleiro, histórico, revisão e fallback local    |
+| Package              | Technology                              | Role                                          |
+| -------------------- | --------------------------------------- | --------------------------------------------- |
+| `@zugzwang/analysis` | TypeScript                              | Contracts, UCI parser, and quality policy     |
+| `@zugzwang/engine`   | TypeScript, chess.js, Vitest            | Chess rules and minimax bot                   |
+| `@zugzwang/server`   | TypeScript, Express, Stockfish 18/WASM  | Game API and asynchronous deep analysis queue |
+| `@zugzwang/web`      | TypeScript, React, Vite, Stockfish/WASM | Board, history, review, and local fallback    |
 
-Ferramentas transversais: **pnpm workspaces**, **ESLint**, **Prettier**.
+Shared tools: **pnpm workspaces**, **ESLint**, **Prettier**.
 
-## Como rodar localmente
+## Running locally
 
-### Pré-requisitos
+### Prerequisites
 
 - [Node.js](https://nodejs.org/) **>= 20**
 - [pnpm](https://pnpm.io/) **>= 9** (`npm install -g pnpm`)
 
-### Instalação
+### Installation
 
 ```bash
 git clone https://github.com/mateusands/Zugzwang.git
@@ -58,135 +58,134 @@ cd Zugzwang
 pnpm install
 ```
 
-### Jogar contra o bot
+### Playing against the bot
 
-**No navegador** (web + server juntos):
+**In the browser** (web + server together):
 
 ```bash
 pnpm dev
-# abra http://localhost:5173 e jogue clicando nas peças
+# open http://localhost:5173 and play by clicking the pieces
 ```
 
-**No terminal** (sem navegador):
+**In the terminal** (without a browser):
 
 ```bash
 pnpm --filter @zugzwang/engine play
 ```
 
-### Executando (por pacote)
+### Running individual packages
 
 ```bash
-pnpm --filter @zugzwang/web dev       # cliente Vite em http://localhost:5173
-pnpm --filter @zugzwang/server dev    # API em http://localhost:3000
-pnpm --filter @zugzwang/engine test   # testes do engine
+pnpm --filter @zugzwang/web dev       # Vite client at http://localhost:5173
+pnpm --filter @zugzwang/server dev    # API at http://localhost:3000
+pnpm --filter @zugzwang/engine test   # engine tests
 ```
 
-Verifique a API com:
+Check the API with:
 
 ```bash
 curl http://localhost:3000/health
 # {"status":"ok","service":"zugzwang-server"}
 ```
 
-O servidor inicia um pool limitado do Stockfish 18 completo para revisar
-partidas em jobs assíncronos. Os resultados e o cache sobrevivem a reinícios em
-`.data/analysis.json`; se o pool não puder iniciar, a revisão continua com o
-motor lite do navegador. O orçamento pode ser ajustado sem alterar código:
+The server starts a bounded pool of full Stockfish 18 engines to review games
+through asynchronous jobs. Results and cache survive restarts in
+`.data/analysis.json`; if the pool cannot start, review continues using the
+browser's lite engine. The budget can be adjusted without changing code:
 
 ```bash
 ANALYSIS_POOL_SIZE=2 ANALYSIS_HASH_MB=512 ANALYSIS_MAXIMUM_DEPTH=30 pnpm --filter @zugzwang/server dev
 ```
 
-`ANALYSIS_POOL_SIZE` aceita 1–8 processos e, por padrão, sobe um motor por
-núcleo livre (no máximo 6) — ou seja, **um thread por motor**. Como os jobs
-buscam por profundidade fixa, thread extra quase não compra tempo: o lazy SMP
-alarga a busca para chegar à mesma profundidade. Medido num lote de 7 posições
-profundas numa máquina de 12 núcleos, mediana de repetições: 57s com 2 motores
-de 5 threads, 21s com 4 de 2, 19s com 5 de 2 e **13s com 6 de 1**.
-`ANALYSIS_HASH_MB` define o hash total
-dividido pelo pool e `ANALYSIS_DATA_PATH` troca o caminho da persistência. A
-profundidade dos perfis pode ser calibrada com `ANALYSIS_FAST_DEPTH` (18),
-`ANALYSIS_DEEP_DEPTH` (22) e `ANALYSIS_MAXIMUM_DEPTH` (26, até 40). Profundidades
-altas crescem exponencialmente e são indicadas para uma máquina dedicada. A
-saúde do motor está em `GET /analysis/health`; jobs usam
-`POST /analysis/jobs`, `GET /analysis/jobs/:id`, SSE em
-`GET /analysis/jobs/:id/events` e cancelamento em `DELETE /analysis/jobs/:id`.
+`ANALYSIS_POOL_SIZE` accepts 1–8 processes and defaults to one engine per
+available core (up to 6) — **one thread per engine**. Since jobs search to a
+fixed depth, extra threads save very little time: lazy SMP broadens the search
+to reach the same depth. Measured on a batch of 7 deep positions on a 12-core
+machine, using median times across repeated runs: 57s with 2 engines of 5
+threads, 21s with 4 of 2, 19s with 5 of 2, and **13s with 6 of 1**.
+`ANALYSIS_HASH_MB` sets the total hash memory divided across the pool, and
+`ANALYSIS_DATA_PATH` changes the persistence path. Profile depths can be tuned
+with `ANALYSIS_FAST_DEPTH` (18), `ANALYSIS_DEEP_DEPTH` (22), and
+`ANALYSIS_MAXIMUM_DEPTH` (26, up to 40). Higher depths grow exponentially and
+are intended for a dedicated machine. Engine health is available at
+`GET /analysis/health`; jobs use `POST /analysis/jobs`,
+`GET /analysis/jobs/:id`, SSE at `GET /analysis/jobs/:id/events`, and
+cancellation at `DELETE /analysis/jobs/:id`.
 
-### Outros comandos
+### Other commands
 
 ```bash
-pnpm build          # builda todos os pacotes
-pnpm test           # roda todos os testes
+pnpm build          # build all packages
+pnpm test           # run all tests
 pnpm lint           # ESLint
 pnpm format         # Prettier --write
 ```
 
-## Estrutura do projeto
+## Project structure
 
 ```
 zugzwang/
 ├── packages/
-│   ├── engine/   # Regras (wrapper chess.js) + bot (minimax) + análise + CLI
-│   ├── analysis/ # Contratos e política compartilhados da análise Stockfish
-│   ├── server/   # API de jogo + jobs assíncronos de análise
-│   └── web/      # Cliente React + Vite (tabuleiro, histórico e revisão)
-├── tsconfig.base.json   # Config TypeScript compartilhada
-├── eslint.config.js     # Lint compartilhado
+│   ├── engine/   # Rules (chess.js wrapper) + bot (minimax) + analysis + CLI
+│   ├── analysis/ # Shared Stockfish analysis contracts and policy
+│   ├── server/   # Game API + asynchronous analysis jobs
+│   └── web/      # React + Vite client (board, history, and review)
+├── tsconfig.base.json   # Shared TypeScript config
+├── eslint.config.js     # Shared lint config
 ├── pnpm-workspace.yaml
-├── CLAUDE.md            # Guia de contribuição / convenções do projeto
+├── CLAUDE.md            # Contribution guide / project conventions
 └── README.md
 ```
 
 ## Roadmap
 
-**Concluído:**
+**Completed:**
 
-1. **Base local** — monorepo, wrapper do engine, tooling.
-2. **Regras completas** — movimentos legais, xeque/mate/afogamento, roque, _en
-   passant_, promoção, histórico/PGN.
-3. **Bot com minimax** — avaliação de posição e poda alfa-beta.
-4. **Bot refinado** — estrutura de peões, segurança do rei, controle de centro;
-   ordenação de lances, profundidade adaptativa e tabela de transposição.
-5. **Polish** — desfazer, níveis de dificuldade, análise pós-jogo, CLI.
-6. **Interação no navegador** — API de jogo no server + tabuleiro jogável no web
-   (drag/clique, dicas, anotações, sons, promoção, tela de fim, persistência).
-7. **Takeback + navegação** — desfazer o par de lances e navegar o histórico
-   (◀▶, lista de lances clicável, teclado).
-8. **Histórico de partidas** — salvar partidas encerradas (localStorage) e
-   revê-las lance a lance (replay).
-9. **Motor de avaliação** — Stockfish/WASM num Web Worker; barra de avaliação
-   ao lado do tabuleiro (avaliação, melhor lance, probabilidade de vitória).
-10. **Revisão de partida** — classificação lance a lance, precisão, destaques e
-    análise Stockfish full assíncrona no backend com cache persistente. A
-    passagem rápida e o refinamento dos quatro lances mais críticos acontecem
-    em segundo plano durante a própria partida; o encerramento conclui apenas o
-    que ainda não chegou ao cache.
+1. **Local foundation** — monorepo, engine wrapper, tooling.
+2. **Complete rules** — legal moves, check/checkmate/stalemate, castling,
+   _en passant_, promotion, history/PGN.
+3. **Minimax bot** — position evaluation and alpha-beta pruning.
+4. **Refined bot** — pawn structure, king safety, center control; move
+   ordering, adaptive depth, and transposition table.
+5. **Polish** — undo, difficulty levels, post-game analysis, CLI.
+6. **Browser interaction** — server game API + playable web board
+   (drag/click, hints, annotations, sounds, promotion, end screen, persistence).
+7. **Takeback + navigation** — undo a pair of moves and navigate history
+   (◀▶, clickable move list, keyboard).
+8. **Game history** — save completed games (localStorage) and review them
+   move by move (replay).
+9. **Evaluation engine** — Stockfish/WASM in a Web Worker; evaluation bar
+   beside the board (evaluation, best move, win probability).
+10. **Game review** — move-by-move classification, accuracy, highlights, and
+    asynchronous full Stockfish analysis on the backend with a persistent
+    cache. The quick pass and refinement of the four most critical moves run
+    in the background during the game itself; finishing the game completes
+    only what has not yet reached the cache.
 
-**Próximo:** treinador → bots com personalidade. Por fim, **CI/CD e deploy**.
+**Next:** coach → bots with personalities. Finally, **CI/CD and deployment**.
 
-Detalhes das convenções (commits, branches, PRs) estão no
-[CLAUDE.md](CLAUDE.md).
+Convention details (commits, branches, PRs) are in [CLAUDE.md](CLAUDE.md).
 
 ## Status
 
-🚧 **Em desenvolvimento ativo.** Já é **jogável contra o bot** — no navegador
-(`pnpm dev`) e no terminal (`pnpm --filter @zugzwang/engine play`) — com
-histórico de partidas, barra de avaliação e revisão profunda com Stockfish.
-Fases 1–10 concluídas; a próxima etapa é o treinador.
+🚧 **In active development.** Already **playable against the bot** — in the
+browser (`pnpm dev`) and terminal (`pnpm --filter @zugzwang/engine play`) —
+with game history, an evaluation bar, and deep Stockfish review.
+Phases 1–10 complete; the next step is the coach.
 
-## Licença
+## License
 
-Distribuído sob a licença [GNU GPL v3](LICENSE).
+Distributed under the [GNU GPL v3](LICENSE) license.
 
-As peças do tabuleiro são o conjunto **Cburnett**, de Colin M.L. Burnett, obtido
-do [Wikimedia Commons](https://commons.wikimedia.org/wiki/Category:SVG_chess_pieces)
-e multi-licenciado sob GPLv2+, BSD e CC BY-SA 3.0 — usamos sob a GPL. A arte vem
-vendorizada em `packages/web/src/pieceArt.ts` (e não como asset externo, porque a
-página é cross-origin isolated).
+Board pieces use the **Cburnett** set by Colin M.L. Burnett, obtained from
+[Wikimedia Commons](https://commons.wikimedia.org/wiki/Category:SVG_chess_pieces)
+and licensed under GPLv2+, BSD, and CC BY-SA 3.0 — we use it under the GPL.
+The artwork is vendored in `packages/web/src/pieceArt.ts` (rather than as an
+external asset, because the page is cross-origin isolated).
 
-A análise de posições usa o [Stockfish](https://stockfishchess.org/) compilado
-para WebAssembly (via [nmrugg/stockfish.js](https://github.com/nmrugg/stockfish.js)),
-que é software livre sob GPLv3 — por isso este projeto também adota a GPLv3.
-O binário do motor não é versionado aqui: é obtido do pacote `stockfish` (npm).
-As variantes lite são copiadas para `packages/web/public/engine/` no
-`dev`/`build`; o servidor executa a variante full diretamente do pacote.
+Position analysis uses [Stockfish](https://stockfishchess.org/) compiled to
+WebAssembly (via [nmrugg/stockfish.js](https://github.com/nmrugg/stockfish.js)),
+which is free software under GPLv3 — hence this project also adopts GPLv3.
+The engine binary is not tracked here: it comes from the `stockfish` npm
+package. Lite variants are copied to `packages/web/public/engine/` during
+`dev`/`build`; the server runs the full variant directly from the package.
