@@ -1,281 +1,281 @@
-# CLAUDE.md — Guia do projeto Zugzwang
+# CLAUDE.md — Zugzwang project guide
 
-> Este arquivo orienta o Claude Code (e qualquer contribuidor) em sessões
-> futuras. Leia antes de começar qualquer tarefa neste repositório.
+> This file guides Claude Code (and any contributor) in future sessions.
+> Read it before starting any task in this repository.
 
-## Visão geral
+## Overview
 
-**Zugzwang** é um jogo de xadrez contra um bot, escrito em TypeScript. É um
-projeto de portfólio, de longo prazo, evoluído em fases. O código é organizado
-como um **monorepo com pnpm workspaces**.
+**Zugzwang** is a chess game against a bot, written in TypeScript. It is a
+long-term portfolio project developed in phases. The code is organized as a
+**monorepo with pnpm workspaces**.
 
 ### Stack
 
-| Camada    | Tecnologia                                                                        |
-| --------- | --------------------------------------------------------------------------------- |
-| Engine    | TypeScript + [chess.js](https://github.com/jhlywa/chess.js) (isolado num wrapper) |
-| Analysis  | TypeScript — contratos e políticas de qualidade compartilhados da análise         |
-| Server    | TypeScript + Express + Stockfish (processo nativo, jobs assíncronos)              |
-| Web       | TypeScript + React + Vite + Stockfish/WASM (Web Worker)                           |
-| Testes    | Vitest                                                                            |
-| Qualidade | ESLint (flat config) + Prettier                                                   |
-| Runtime   | Node.js >= 20, pnpm >= 9                                                          |
+| Layer    | Technology                                                                          |
+| -------- | ----------------------------------------------------------------------------------- |
+| Engine   | TypeScript + [chess.js](https://github.com/jhlywa/chess.js) (isolated in a wrapper) |
+| Analysis | TypeScript — shared analysis contracts and quality policies                         |
+| Server   | TypeScript + Express + Stockfish (native process, asynchronous jobs)                |
+| Web      | TypeScript + React + Vite + Stockfish/WASM (Web Worker)                             |
+| Tests    | Vitest                                                                              |
+| Quality  | ESLint (flat config) + Prettier                                                     |
+| Runtime  | Node.js >= 20, pnpm >= 9                                                            |
 
-### Estrutura de pastas
+### Folder structure
 
 ```
 zugzwang/
 ├── packages/
-│   ├── engine/   # Regras (wrapper chess.js) + bot (minimax) + análise
+│   ├── engine/   # Rules (chess.js wrapper) + bot (minimax) + analysis
 │   │   ├── src/
-│   │   │   ├── engine.ts   # ChessEngine — ÚNICO ponto que toca chess.js
-│   │   │   ├── bot.ts      # avaliação, minimax+αβ, dificuldade, análise
-│   │   │   ├── render.ts   # tabuleiro em texto (para a CLI)
-│   │   │   └── index.ts    # API pública do pacote
-│   │   └── scripts/play.ts # CLI: jogar contra o bot no terminal
-│   ├── analysis/ # Contratos compartilhados da análise Stockfish (sem I/O)
+│   │   │   ├── engine.ts   # ChessEngine — the ONLY place that touches chess.js
+│   │   │   ├── bot.ts      # evaluation, minimax+αβ, difficulty, analysis
+│   │   │   ├── render.ts   # text board (for the CLI)
+│   │   │   └── index.ts    # public package API
+│   │   └── scripts/play.ts # CLI: play against the bot in the terminal
+│   ├── analysis/ # Shared Stockfish analysis contracts (no I/O)
 │   │   └── src/
-│   │       ├── types.ts    # shape dos jobs, requisições e resultados
-│   │       ├── quality.ts  # políticas de qualidade/classificação de lance
-│   │       ├── uci.ts      # parsing do protocolo UCI
-│   │       └── index.ts    # API pública do pacote
-│   ├── server/   # API de jogo (Express, estado em memória) + jobs de análise
+│   │       ├── types.ts    # job, request, and result shapes
+│   │       ├── quality.ts  # quality/move classification policies
+│   │       ├── uci.ts      # UCI protocol parsing
+│   │       └── index.ts    # public package API
+│   ├── server/   # Game API (Express, in-memory state) + analysis jobs
 │   │   └── src/
-│   │       ├── app.ts      # createApp() — rotas /games, testável sem listen()
-│   │       ├── index.ts    # bootstrap (listen na porta)
-│   │       └── analysis/   # backend de análise assíncrona (ver seção própria)
-│   └── web/      # Cliente React + Vite — tabuleiro jogável
-│       ├── src/               # App, BoardView, components/, hooks, helpers puros
-│       │   ├── pieceArt.ts    # arte SVG das peças (Cburnett), vendorizada
-│       │   ├── useLiveReview.ts  # pré-análise em segundo plano durante a partida
-│       │   └── analysisApi.ts    # cliente dos jobs (SSE)
-│       └── tests/             # suíte do pacote (fica na RAIZ, não ao lado do fonte)
-│           └── setup.ts       # Storage em memória p/ o localStorage do Node 26
-├── tsconfig.base.json      # Config TS compartilhada (cada pacote extende)
-├── eslint.config.js        # ESLint flat config compartilhado
-├── .gitattributes          # Fim de linha LF (.bat/.cmd em CRLF)
-├── .claude/skills/         # Skills do Claude Code (versionadas)
+│   │       ├── app.ts      # createApp() — /games routes, testable without listen()
+│   │       ├── index.ts    # bootstrap (listen on the port)
+│   │       └── analysis/   # asynchronous analysis backend (see dedicated section)
+│   └── web/      # React + Vite client — playable board
+│       ├── src/               # App, BoardView, components/, hooks, pure helpers
+│       │   ├── pieceArt.ts    # vendored SVG piece artwork (Cburnett)
+│       │   ├── useLiveReview.ts  # background pre-analysis during the game
+│       │   └── analysisApi.ts    # job client (SSE)
+│       └── tests/             # package suite (at the ROOT, not beside source files)
+│           └── setup.ts       # in-memory Storage for Node 26 localStorage
+├── tsconfig.base.json      # Shared TS config (extended by each package)
+├── eslint.config.js        # Shared ESLint flat config
+├── .gitattributes          # LF line endings (.bat/.cmd use CRLF)
+├── .claude/skills/         # Claude Code skills (versioned)
 ├── pnpm-workspace.yaml
-└── package.json            # Scripts raiz (dev/build/test/lint/format)
+└── package.json            # Root scripts (dev/build/test/lint/format)
 ```
 
-> **Skills (`.claude/skills/`, versionadas):** `iniciar-sessao`, `finalizar-sessao`,
-> `backend`, `frontend`, `codereview` e `rodar-local` — codificam as convenções
-> abaixo em forma acionável. O resto de `.claude/` é local e fica fora do git.
+> **Skills (`.claude/skills/`, versioned):** `iniciar-sessao`, `finalizar-sessao`,
+> `backend`, `frontend`, `codereview`, and `rodar-local` — encode the conventions
+> below as actionable instructions. The rest of `.claude/` is local and excluded from git.
 >
-> **Docs de apoio (locais, em `.claude/`, fora do git):** `roadmap.md` (fases
-> 6–12 detalhadas) e `HARDENING.md` (armadilhas e decisões acumuladas — leia
-> antes de mexer no código).
+> **Supporting docs (local, in `.claude/`, excluded from git):** `roadmap.md`
+> (phases 6–12 in detail) and `HARDENING.md` (accumulated pitfalls and decisions —
+> read before changing code).
 
-## Regra de ouro do engine
+## Engine golden rule
 
-**Nunca** importe `chess.js` diretamente fora de `packages/engine/src/engine.ts`.
-Todo acesso às regras do xadrez passa pela classe `ChessEngine` e pelos tipos
-exportados em `@zugzwang/engine`. Isso mantém a biblioteca de regras trocável
-sem refatorar server nem web.
+**Never** import `chess.js` directly outside `packages/engine/src/engine.ts`.
+All access to chess rules goes through the `ChessEngine` class and the types
+exported by `@zugzwang/engine`. This keeps the rules library replaceable
+without refactoring server or web.
 
-## Comandos
+## Commands
 
-Na raiz (rodam em todos os pacotes via filtros do workspace):
+At the root (run across all packages through workspace filters):
 
 ```bash
-pnpm install        # instala tudo
-pnpm dev            # sobe todos os pacotes em modo watch (paralelo)
-pnpm build          # builda todos os pacotes
-pnpm test           # roda todos os testes
-pnpm lint           # ESLint (0 warnings toleradas)
+pnpm install        # install everything
+pnpm dev            # start all packages in watch mode (in parallel)
+pnpm build          # build all packages
+pnpm test           # run all tests
+pnpm lint           # ESLint (0 warnings tolerated)
 pnpm format         # Prettier --write
-pnpm format:check   # Prettier --check (usado para validar)
+pnpm format:check   # Prettier --check (used for validation)
 ```
 
-Por pacote:
+Per package:
 
 ```bash
 pnpm --filter @zugzwang/engine test
-pnpm --filter @zugzwang/engine play     # jogar contra o bot no terminal
+pnpm --filter @zugzwang/engine play     # play against the bot in the terminal
 pnpm --filter @zugzwang/analysis test
-pnpm --filter @zugzwang/server dev      # porta 3000
-pnpm --filter @zugzwang/web dev         # porta 5173
+pnpm --filter @zugzwang/server dev      # port 3000
+pnpm --filter @zugzwang/web dev         # port 5173
 ```
 
-Para jogar no navegador: `pnpm dev` e abra `http://localhost:5173`.
+To play in the browser: run `pnpm dev` and open `http://localhost:5173`.
 
-> ℹ️ **Node 26 e `localStorage`:** o Node >= 26 expõe um `localStorage` nativo
-> experimental que só funciona com `--localstorage-file`. Como o ambiente jsdom do
-> Vitest usa o próprio `globalThis` como `window`, esse global sombreava o Storage do
-> jsdom e deixava `localStorage` `undefined` nos testes **e** no código de produção que
-> roda sob eles. `packages/web/tests/setup.ts` instala um Storage em memória quando o
-> global não está utilizável (no-op em Node 22/24). A suíte fica verde em qualquer um.
+> ℹ️ **Node 26 and `localStorage`:** Node >= 26 exposes an experimental native
+> `localStorage` that works only with `--localstorage-file`. Since Vitest's jsdom
+> environment uses `globalThis` itself as `window`, this global shadowed jsdom's
+> Storage and left `localStorage` `undefined` in tests **and** in production code
+> running under them. `packages/web/tests/setup.ts` installs in-memory Storage
+> when the global is unusable (a no-op on Node 22/24). The suite passes on all of them.
 
-## Regras de código
+## Code rules
 
-- **TypeScript estrito.** `strict: true` e checagens extras já ligadas no
-  `tsconfig.base.json`. Não relaxe sem justificativa.
-- **Sem `any`** — a regra `@typescript-eslint/no-explicit-any` é `error`. Se um
-  `any` for realmente inevitável, isole-o e comente o porquê.
-- **Testes obrigatórios para lógica do `engine`.** Toda regra, movimento ou
-  função de avaliação do bot precisa de teste no Vitest. Server e web podem ter
-  testes mais leves por enquanto.
-- **Código em inglês.** Nomes de variáveis, funções, tipos e mensagens de commit
-  em inglês. Documentação (README, este arquivo, comentários explicativos) pode
-  ser em português.
-- **ESM.** Todos os pacotes são `"type": "module"`; use imports com extensão
-  `.js` em imports relativos internos (ex.: `./engine.js`).
+- **Strict TypeScript.** `strict: true` and extra checks are already enabled in
+  `tsconfig.base.json`. Do not relax them without justification.
+- **No `any`** — `@typescript-eslint/no-explicit-any` is set to `error`. If
+  `any` is truly unavoidable, isolate it and explain why in a comment.
+- **Mandatory tests for `engine` logic.** Every rule, move, or bot evaluation
+  function needs a Vitest test. Server and web may have lighter tests for now.
+- **Code in English.** Variable, function, and type names and commit messages
+  must be in English. Documentation (README, this file, explanatory comments)
+  may be in Portuguese.
+- **ESM.** All packages use `"type": "module"`; use the `.js` extension in
+  internal relative imports (e.g., `./engine.js`).
 
-## Análise assíncrona (fase 10 — PR #12)
+## Asynchronous analysis (phase 10 — PR #12)
 
-A revisão de partida deixou de rodar só no navegador: o **server** expõe um backend de
-análise com Stockfish nativo, em jobs assíncronos, e o **web** consome esses jobs.
+Game review no longer runs only in the browser: **server** exposes an analysis
+backend using native Stockfish through asynchronous jobs, and **web** consumes them.
 
-### Os três pacotes envolvidos
+### The three packages involved
 
-| Onde                            | Papel                                                                                                                                                                  |
+| Location                        | Role                                                                                                                                                                   |
 | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@zugzwang/analysis`            | **contratos puros** — tipos dos jobs, parsing UCI, políticas de qualidade. Sem I/O, sem processo, sem rede. É a fonte da verdade compartilhada entre server e web      |
-| `packages/server/src/analysis/` | execução: `stockfishProcess` (processo nativo), `analysisJobManager` (fila/pool), `fileAnalysisRepository` (persistência), `analysisRoutes` (HTTP), `runtime` (config) |
-| `packages/web`                  | consome via `analysisApi.ts` (SSE) → `useLiveReview.ts` (pré-análise) / `reviewAnalysis.ts` (revisão final)                                                            |
+| `@zugzwang/analysis`            | **Pure contracts** — job types, UCI parsing, quality policies. No I/O, processes, or network. The shared source of truth for server and web                            |
+| `packages/server/src/analysis/` | Execution: `stockfishProcess` (native process), `analysisJobManager` (queue/pool), `fileAnalysisRepository` (persistence), `analysisRoutes` (HTTP), `runtime` (config) |
+| `packages/web`                  | Consumes through `analysisApi.ts` (SSE) → `useLiveReview.ts` (pre-analysis) / `reviewAnalysis.ts` (final review)                                                       |
 
-**Regra:** shape novo de job/resultado nasce em `@zugzwang/analysis` e é importado dos
-dois lados. Definir o tipo só no server (ou só no web) recria a divergência de contrato
-que o pacote existe para evitar.
+**Rule:** new job/result shapes originate in `@zugzwang/analysis` and are imported
+on both sides. Defining a type only in server (or only in web) recreates the
+contract divergence this package exists to prevent.
 
-### Rotas
-
-```
-GET  /analysis/health          # 503 quando o backend de análise não está montado
-POST /analysis/jobs            # cria job
-GET  /analysis/jobs/:id        # consulta (só fallback: o web acompanha por SSE)
-DELETE /analysis/jobs/:id      # cancela
-GET  /analysis/jobs/:id/events # stream de progresso (SSE) — caminho normal do web
-```
-
-⚠️ **Não volte a acompanhar job por polling.** O web já fez isso com um `GET` a cada
-150 ms, o que gerava dezenas de requisições por posição — e uma pré-análise dispara a
-cada lance. O `analysisApi.ts` assina o stream e só cai para consulta quando não há
-`EventSource` (jsdom nos testes) ou a conexão morre antes do snapshot terminal.
-
-As rotas de análise só são registradas quando `createApp()` recebe `analysisJobs` — sem
-isso, `createApp()` continua servindo só `/games` e `/analysis/health` responde `503`.
-É o que mantém os testes do server isolados, sem subir Stockfish.
-
-### Configuração (variáveis de ambiente, todas opcionais)
-
-| Variável                 | Default                | Faixa   |
-| ------------------------ | ---------------------- | ------- |
-| `ANALYSIS_POOL_SIZE`     | núcleos livres, teto 6 | 1–8     |
-| `ANALYSIS_HASH_MB`       | 512                    | 16–4096 |
-| `ANALYSIS_FAST_DEPTH`    | 18                     | 12–24   |
-| `ANALYSIS_DEEP_DEPTH`    | ≥22                    | fast–32 |
-| `ANALYSIS_MAXIMUM_DEPTH` | ≥26                    | deep–40 |
-| `ANALYSIS_DATA_PATH`     | `.data/analysis.json`  | —       |
-
-Os valores são clampados na faixa (`boundedInteger` em `runtime.ts`) — valor fora do
-intervalo é corrigido em silêncio, não rejeitado. As profundidades são encadeadas:
-`fast ≤ deep ≤ maximum`. `ANALYSIS_POOL_SIZE` é o único **sem** valor de reserva: ausente
-vira `undefined` de propósito, para `computeStockfishResources` dimensionar pelos núcleos.
-Dar um default aqui transforma aquele cálculo em código morto — já aconteceu.
-
-⚠️ **Um thread por motor, não um motor com muitas threads.** Os jobs buscam por
-profundidade fixa (`go depth N`) e, nesse regime, o lazy SMP alarga a busca: thread extra
-visita mais nós para chegar à mesma profundidade e quase não economiza tempo. Medido num
-lote deep de 7 posições numa máquina de 12 núcleos (mediana de repetições): 2 motores × 5
-threads = 57s, 4 × 2 = 21s, 5 × 2 = 19s, **6 × 1 = 13s**. Seis motores usando 6 threads no
-total ganham de dois usando 10.
-
-⚠️ **A persistência é um arquivo JSON** (`.data/analysis.json`, gitignorado), não um
-banco. Ele cresce com o histórico de jobs e é reescrito inteiro — não é o lugar para
-volume alto sem repensar o repositório.
-
-## Regra inegociável: TDD/BDD/SDD
-
-Nenhum código de produção é escrito sem spec (SDD) → cenário Given/When/Then (BDD) →
-teste vermelho antes do código (TDD). Sem exceções, mesmo em mudanças pequenas.
-
-O ciclo aplicado a cada camada está nas skills versionadas: `/backend` (engine, analysis
-e server — spec no cabeçalho do teste, `it('deve <resultado> quando <condição>')`, FEN
-como cenário) e `/frontend` (web — helper puro antes de componente, jsdom por docblock).
-
-## Convenção de commits — Conventional Commits
-
-Formato: `tipo(escopo): descrição no imperativo`.
-
-Tipos: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `ci`.
-Escopos usuais: `engine`, `analysis`, `server`, `web`, `repo`.
-
-Exemplos do domínio:
+### Routes
 
 ```
-feat(engine): adiciona validação de roque
-feat(engine): implementa detecção de en passant
-fix(engine): corrige promoção de peão que não trocava a peça
-test(engine): cobre casos de xeque-mate e afogamento (stalemate)
-feat(server): adiciona rota POST /games para iniciar partida
-feat(web): renderiza peças a partir do FEN do engine
-refactor(engine): extrai avaliação de material para módulo próprio
-docs(repo): documenta como rodar cada pacote localmente
-chore(repo): atualiza dependências do workspace
+GET  /analysis/health          # 503 when the analysis backend is not mounted
+POST /analysis/jobs            # create a job
+GET  /analysis/jobs/:id        # query (fallback only: web follows jobs through SSE)
+DELETE /analysis/jobs/:id      # cancel
+GET  /analysis/jobs/:id/events # progress stream (SSE) — normal web path
 ```
 
-## Convenção de branches
+⚠️ **Do not return to polling jobs.** Web previously sent a `GET` every 150 ms,
+generating dozens of requests per position — and pre-analysis starts on every
+move. `analysisApi.ts` subscribes to the stream and falls back to querying only
+when `EventSource` is unavailable (jsdom in tests) or the connection dies before
+the terminal snapshot.
 
-- `feat/nome-da-feature` — ex.: `feat/minimax-bot`
-- `fix/nome-do-bug` — ex.: `fix/en-passant-invalido`
-- `refactor/...`, `test/...`, `docs/...`, `chore/...` seguem o mesmo padrão.
+Analysis routes are registered only when `createApp()` receives `analysisJobs` —
+otherwise, `createApp()` continues serving only `/games`, and `/analysis/health`
+returns `503`. This keeps server tests isolated without starting Stockfish.
 
-Trabalhe sempre em branch; não faça commits direto na `main`.
+### Configuration (environment variables, all optional)
 
-## Estrutura de Pull Request
+| Variable                 | Default                      | Range   |
+| ------------------------ | ---------------------------- | ------- |
+| `ANALYSIS_POOL_SIZE`     | available cores, capped at 6 | 1–8     |
+| `ANALYSIS_HASH_MB`       | 512                          | 16–4096 |
+| `ANALYSIS_FAST_DEPTH`    | 18                           | 12–24   |
+| `ANALYSIS_DEEP_DEPTH`    | ≥22                          | fast–32 |
+| `ANALYSIS_MAXIMUM_DEPTH` | ≥26                          | deep–40 |
+| `ANALYSIS_DATA_PATH`     | `.data/analysis.json`        | —       |
 
-- **Título** no padrão dos commits (ex.: `feat(engine): adiciona minimax`).
-- **Descrição** com seções:
-  - **O que mudou** — resumo objetivo.
-  - **Como testar** — comandos e passos para validar.
-  - **Screenshots** — obrigatório quando mexer na UI (web).
-- **PRs pequenos e focados** — uma responsabilidade por PR. Prefira vários PRs
-  pequenos a um gigante.
+Values are clamped to the range (`boundedInteger` in `runtime.ts`) — out-of-range
+values are silently corrected rather than rejected. Depths are chained:
+`fast ≤ deep ≤ maximum`. `ANALYSIS_POOL_SIZE` is the only one **without** a fallback
+value: when absent, it deliberately becomes `undefined` so `computeStockfishResources`
+can size the pool based on cores. Adding a default here turns that calculation into
+dead code — this has already happened.
 
-## O que NÃO fazer ainda
+⚠️ **One thread per engine, not one engine with many threads.** Jobs search to a
+fixed depth (`go depth N`), and in this mode lazy SMP broadens the search: extra
+threads visit more nodes to reach the same depth and save very little time.
+Measured on a deep batch of 7 positions on a 12-core machine (median across repeated
+runs): 2 engines × 5 threads = 57s, 4 × 2 = 21s, 5 × 2 = 19s, **6 × 1 = 13s**.
+Six engines using 6 threads total outperform two using 10.
 
-> Restrições que continuam valendo. Não implemente por engano sem que o dono do
-> projeto peça.
+⚠️ **Persistence uses a JSON file** (`.data/analysis.json`, gitignored), not a
+database. It grows with job history and is rewritten in full — it is unsuitable
+for high volume without rethinking the repository implementation.
 
-- **Nada de GitHub Actions / CI.** Nenhum workflow em `.github/`. CI/CD ainda é
-  fase posterior.
-- **Nada de Docker nem deploy.** Sem `Dockerfile`, sem scripts de deploy. O
-  proxy do Vite (`/api` → server) é **só de desenvolvimento**.
-- **Não commitar nem dar push automaticamente.** O dono do projeto revisa e
-  commita/mergeia manualmente, a menos que peça o contrário explicitamente. O
-  fluxo é: branch → PR → dono mergeia → sincroniza `main` → apaga a branch.
+## Non-negotiable rule: TDD/BDD/SDD
 
-## Roadmap (fases)
+No production code is written without a spec (SDD) → Given/When/Then scenario (BDD) →
+failing test before code (TDD). No exceptions, even for small changes.
 
-**Concluídas** (jogável no navegador e no terminal):
+The cycle for each layer is documented in the versioned skills: `/backend` (engine,
+analysis, and server — spec in the test header, `it('deve <resultado> quando <condição>')`,
+meaning "should <result> when <condition>", FEN as the scenario) and `/frontend`
+(web — pure helper before component, jsdom through a docblock).
 
-1. **Base local** — monorepo, wrapper do engine, tooling (lint/format).
-2. **Regras completas** — movimentos legais, xeque/mate/afogamento, roque, en
-   passant, promoção, histórico/PGN.
-3. **Bot com minimax** — avaliação + poda alfa-beta.
-4. **Bot refinado** — estrutura de peões, segurança do rei, controle de centro;
-   ordenação de lances, profundidade adaptativa, tabela de transposição.
-5. **Polish** — desfazer (`undo`), níveis de dificuldade, análise pós-jogo, CLI.
-6. **Interação no navegador** — server (API de jogo) + web (tabuleiro jogável:
-   drag/clique, dicas, anotações, sons, promoção, tela de fim, persistência).
-7. **Takeback + navegação** — desfazer o par de lances; navegar o histórico
-   (◀▶, lista de lances clicável, teclado).
-8. **Histórico de partidas** — salvar partidas encerradas (localStorage) e
-   revê-las lance a lance (replay).
-9. **Motor de avaliação** — Stockfish/WASM em Web Worker; barra de avaliação
-   (avaliação, melhor lance, probabilidade de vitória) ao vivo e no replay.
-   **O repo passou a GPLv3** por empacotar o binário do Stockfish.
-10. **Revisão e classificação de lances** — livro de aberturas curado, análise
-    multipv adaptativa, revisão de partida completa e retomável, lances revisados
-    animados no replay (PR #11); e o **backend de análise assíncrona**: pacote
-    `@zugzwang/analysis` com os contratos compartilhados, jobs de Stockfish nativo
-    no server, revisão do web rodando sobre eles (PR #12). Ver a seção
-    "Análise assíncrona" acima.
+## Commit convention — Conventional Commits
 
-**Próximas** (detalhe em `.claude/roadmap.md`): 11 treinador (comentários) ·
-12 bots com personalidade.
+Format: `type(scope): imperative description`.
 
-**CI/CD + deploy** (GitHub Actions, Docker) entram **só** quando o dono pedir —
-não antes.
+Types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `ci`.
+Common scopes: `engine`, `analysis`, `server`, `web`, `repo`.
+
+Domain examples:
+
+```
+feat(engine): add castling validation
+feat(engine): implement en passant detection
+fix(engine): fix pawn promotion failing to replace the piece
+test(engine): cover checkmate and stalemate cases
+feat(server): add POST /games route to start a game
+feat(web): render pieces from the engine FEN
+refactor(engine): extract material evaluation into its own module
+docs(repo): document how to run each package locally
+chore(repo): update workspace dependencies
+```
+
+## Branch convention
+
+- `feat/feature-name` — e.g., `feat/minimax-bot`
+- `fix/bug-name` — e.g., `fix/invalid-en-passant`
+- `refactor/...`, `test/...`, `docs/...`, `chore/...` follow the same pattern.
+
+Always work on a branch; do not commit directly to `main`.
+
+## Pull request structure
+
+- **Title** follows the commit convention (e.g., `feat(engine): add minimax`).
+- **Description** with sections:
+  - **What changed** — objective summary.
+  - **How to test** — commands and validation steps.
+  - **Screenshots** — required for UI (web) changes.
+- **Small, focused PRs** — one responsibility per PR. Prefer several small PRs
+  over one large PR.
+
+## What NOT to do yet
+
+> Restrictions that remain in force. Do not implement these inadvertently
+> unless the project owner asks.
+
+- **No GitHub Actions / CI.** No workflows in `.github/`. CI/CD is a later phase.
+- **No Docker or deployment.** No `Dockerfile`, no deployment scripts. The Vite
+  proxy (`/api` → server) is **for development only**.
+- **Do not commit or push automatically.** The project owner reviews and
+  commits/merges manually unless explicitly requesting otherwise. The flow is:
+  branch → PR → owner merges → synchronize `main` → delete the branch.
+
+## Roadmap (phases)
+
+**Completed** (playable in the browser and terminal):
+
+1. **Local foundation** — monorepo, engine wrapper, tooling (lint/format).
+2. **Complete rules** — legal moves, check/checkmate/stalemate, castling,
+   en passant, promotion, history/PGN.
+3. **Minimax bot** — evaluation + alpha-beta pruning.
+4. **Refined bot** — pawn structure, king safety, center control; move ordering,
+   adaptive depth, transposition table.
+5. **Polish** — undo (`undo`), difficulty levels, post-game analysis, CLI.
+6. **Browser interaction** — server (game API) + web (playable board: drag/click,
+   hints, annotations, sounds, promotion, end screen, persistence).
+7. **Takeback + navigation** — undo a pair of moves; navigate history
+   (◀▶, clickable move list, keyboard).
+8. **Game history** — save completed games (localStorage) and review them
+   move by move (replay).
+9. **Evaluation engine** — Stockfish/WASM in a Web Worker; evaluation bar
+   (evaluation, best move, win probability) live and during replay.
+   **The repo switched to GPLv3** because it bundles the Stockfish binary.
+10. **Move review and classification** — curated opening book, adaptive multipv
+    analysis, complete and resumable game review, animated reviewed moves during
+    replay (PR #11); and the **asynchronous analysis backend**: `@zugzwang/analysis`
+    with shared contracts, native Stockfish jobs on server, web review running
+    on those jobs (PR #12). See the "Asynchronous analysis" section above.
+
+**Next** (details in `.claude/roadmap.md`): 11 coach (commentary) ·
+12 bots with personalities.
+
+**CI/CD + deployment** (GitHub Actions, Docker) are added **only** when the owner
+asks — not before.

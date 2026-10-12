@@ -1,51 +1,51 @@
 ---
 name: finalizar-sessao
-description: Encerra a sessão de trabalho no Zugzwang — gera o relatório da sessão em .claude/sessions/ e atualiza o CLAUDE.md se a arquitetura mudou. Use ao final de cada sessão.
+description: Ends a Zugzwang work session — generates the session report in .claude/sessions/ and updates CLAUDE.md if the architecture changed. Use at the end of each session.
 ---
 
-# Encerramento de Sessão — Zugzwang
+# Session Wrap-up — Zugzwang
 
-O objetivo agora **não é codar**, e sim consolidar o que a sessão mudou para a próxima não começar do zero.
+The goal now is **not to code**, but to consolidate session changes so the next session does not start from scratch.
 
-## 1. Relatório da sessão
+## 1. Session report
 
-- Crie `.claude/sessions/YYYY-MM-DD.md` (data de hoje). Se já existir um arquivo com a data de hoje,
-  **acrescente** uma seção nova em vez de sobrescrever.
-- Conteúdo exigido:
-  - **O que foi feito** — features, bugs resolvidos, refactors, com o pacote afetado.
-  - **Decisões técnicas não-óbvias** — e o porquê. Isso é o que sobrevive ao esquecimento.
-  - **Testes** — o que passou a ser coberto; se algo ficou vermelho, qual e por quê.
-  - **Pendências** — o que ficou para a próxima sessão, explícito o bastante para retomar sem contexto.
-  - **Estado do git** — branch, se há PR aberto, se ficou coisa não commitada.
+- Create `.claude/sessions/YYYY-MM-DD.md` (today's date). If a file with today's date already exists,
+  **append** a new section instead of overwriting it.
+- Required content:
+  - **What was done** — features, resolved bugs, refactors, with the affected package.
+  - **Non-obvious technical decisions** — and why. This preserves context over time.
+  - **Tests** — newly covered behavior; if anything stayed red, what and why.
+  - **Pending work** — what remains for the next session, explicit enough to resume without context.
+  - **Git state** — branch, whether a PR is open, whether anything remains uncommitted.
 
-> `.claude/sessions/` é **gitignorado** — é caderno de bordo local, não documentação do repo.
+> `.claude/sessions/` is **gitignored** — a local logbook, not repository documentation.
 
-## 2. Atualização do CLAUDE.md
+## 2. Updating CLAUDE.md
 
-Avalie criticamente se a sessão mudou algo que o `CLAUDE.md` afirma. Se mudou, atualize — um `CLAUDE.md`
-desatualizado é pior que nenhum, porque é lido como verdade. Gatilhos típicos:
+Critically assess whether the session changed anything asserted by `CLAUDE.md`. If so, update it — an
+outdated `CLAUDE.md` is worse than none because it is read as truth. Typical triggers:
 
-- Pacote novo em `packages/` (a seção "Estrutura de pastas" lista os pacotes um a um).
-- Comando novo ou alterado nos scripts do `package.json`.
-- Mudança de arquitetura: novo módulo no engine, rota nova no server, novo fluxo no web.
-- Fase do roadmap concluída.
-- Armadilha nova descoberta (do tipo que fez você perder tempo) — documente para não repetir.
+- A new package in `packages/` (the "Folder structure" section lists packages individually).
+- A new or changed command in `package.json` scripts.
+- An architecture change: a new engine module, server route, or web flow.
+- A completed roadmap phase.
+- A newly discovered pitfall (the kind that wasted time) — document it to prevent repetition.
 
-## 3. Validação final
+## 3. Final validation
 
-Antes de declarar encerrado, confirme o verde e **relate o resultado real**, sem maquiar:
+Before declaring the session complete, confirm green and **report the actual result**, without disguising it:
 
 ```bash
 pnpm lint && pnpm build && pnpm test
 ```
 
-A suíte deve ficar **100% verde** em qualquer versão de Node suportada. O antigo problema do
-`localStorage` no Node 26 está resolvido por `packages/web/tests/setup.ts`; se ele voltar a aparecer,
-é regressão de verdade e não armadilha de ambiente.
+The suite must be **100% green** on every supported Node version. The old Node 26 `localStorage`
+problem is resolved by `packages/web/tests/setup.ts`; if it returns, it is a real regression,
+not an environment pitfall.
 
-## O que responder ao usuário
+## What to tell the user
 
-1. Caminho do relatório gerado.
-2. Se o `CLAUDE.md` foi atualizado, e o que mudou nele (ou que nada foi necessário).
-3. Resultado real do lint/build/test.
-4. **Não commite nem faça push** — só quando o dono mandar.
+1. Path to the generated report.
+2. Whether `CLAUDE.md` was updated and what changed (or that no update was needed).
+3. Actual lint/build/test results.
+4. **Do not commit or push** — only when the owner instructs you to.

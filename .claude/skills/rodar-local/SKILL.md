@@ -1,80 +1,80 @@
 ---
 name: rodar-local
-description: Subir o Zugzwang localmente (monorepo pnpm — engine, analysis, server 3000, web 5173) e as pegadinhas que custam tempo (binários do Stockfish copiados no prebuild, isolamento cross-origin, localStorage do Node 26). Use ao rodar, testar manualmente ou debugar o ambiente.
+description: Starts Zugzwang locally (pnpm monorepo — engine, analysis, server 3000, web 5173) and covers time-consuming pitfalls (Stockfish binaries copied during prebuild, cross-origin isolation, Node 26 localStorage). Use when running, manually testing, or debugging the environment.
 ---
 
-# Rodar o Zugzwang localmente
+# Running Zugzwang locally
 
-## Pré-requisitos
+## Prerequisites
 
-- **Node >= 20** e **pnpm >= 9** (o `packageManager` fixa `pnpm@11.1.0`; o pnpm baixa a versão certa sozinho).
-- Nada além disso — **não há banco, Redis, Docker nem serviço externo**. O estado do server é em memória.
+- **Node >= 20** and **pnpm >= 9** (`packageManager` pins `pnpm@11.1.0`; pnpm downloads the correct version itself).
+- Nothing else — **no database, Redis, Docker, or external service**. Server state is in memory.
 
 ```bash
 pnpm install
 ```
 
-## Subir tudo
+## Start everything
 
 ```bash
-pnpm dev          # todos os pacotes em watch, em paralelo
+pnpm dev          # all packages in watch mode, in parallel
 ```
 
-Ou por pacote, quando quiser isolar:
+Or start individual packages to isolate them:
 
 ```bash
-pnpm --filter @zugzwang/server dev    # API Express — porta 3000 (tsx watch)
-pnpm --filter @zugzwang/web dev       # Vite — porta 5173
-pnpm --filter @zugzwang/engine play   # jogar contra o bot no terminal, sem navegador
+pnpm --filter @zugzwang/server dev    # Express API — port 3000 (tsx watch)
+pnpm --filter @zugzwang/web dev       # Vite — port 5173
+pnpm --filter @zugzwang/engine play   # play against the bot in the terminal, without a browser
 ```
 
-Jogar no navegador: `pnpm dev` e abra `http://localhost:5173`.
+To play in the browser: run `pnpm dev` and open `http://localhost:5173`.
 
-## Pegadinhas (as que mais custam tempo)
+## Pitfalls (the ones that cost the most time)
 
-- **`public/engine/` vazio → o motor não carrega.** Os binários do Stockfish não estão no git; o
-  `scripts/copy-engine.mjs` roda nos hooks `predev`/`prebuild` e copia `stockfish-18-lite{,-single}.js/.wasm`
-  para `public/engine/`. Se você rodou `vite` direto em vez de `pnpm --filter @zugzwang/web dev`, o hook
-  não rodou. Solução: use os scripts do pacote.
+- **Empty `public/engine/` → the engine does not load.** Stockfish binaries are not tracked in git;
+  `scripts/copy-engine.mjs` runs in the `predev`/`prebuild` hooks and copies
+  `stockfish-18-lite{,-single}.js/.wasm` into `public/engine/`. If you ran `vite` directly instead of
+  `pnpm --filter @zugzwang/web dev`, the hook did not run. Solution: use the package scripts.
 
-- **Análise lenta sem erro nenhum = perdeu o isolamento cross-origin.** O multi-thread exige
-  `SharedArrayBuffer`, que só existe com `Cross-Origin-Opener-Policy: same-origin` +
-  `Cross-Origin-Embedder-Policy: require-corp` — o `vite.config.ts` injeta os dois no `server` e no
-  `preview`. Sem eles a página cai no fallback single-thread **em silêncio**. Se serviu o `dist/` por
-  outro servidor estático (`python -m http.server`, `npx serve`), é isso: esses servidores não mandam os
-  headers. Use `pnpm --filter @zugzwang/web preview`.
+- **Slow analysis without any error = lost cross-origin isolation.** Multi-threading requires
+  `SharedArrayBuffer`, available only with `Cross-Origin-Opener-Policy: same-origin` +
+  `Cross-Origin-Embedder-Policy: require-corp` — `vite.config.ts` injects both into `server` and
+  `preview`. Without them, the page **silently** falls back to single-thread mode. If you served
+  `dist/` through another static server (`python -m http.server`, `npx serve`), that is the cause:
+  those servers do not send the headers. Use `pnpm --filter @zugzwang/web preview`.
 
-- **`require-corp` bloqueia recurso externo sem CORP.** Imagem, fonte ou script de terceiro que antes
-  carregava passa a ser bloqueado. Primeiro suspeito quando um asset novo "sumiu".
+- **`require-corp` blocks external resources without CORP.** Third-party images, fonts, or scripts
+  that previously loaded become blocked. Suspect this first when a new asset "disappears".
 
-- **`server dev` é `tsx watch`** (recarrega sozinho), mas o **estado é em memória** — ao salvar um arquivo
-  do server, as partidas em andamento **se perdem**. Se um bug some ao editar o backend, é isso.
+- **`server dev` uses `tsx watch`** (automatic reload), but **state is in memory** — saving a server
+  file **loses** ongoing games. If a bug disappears when editing the backend, that is why.
 
-- **O web fala com o server por HTTP.** Se a tela carrega mas nenhuma partida começa, confira se a 3000
-  está de pé — não há fallback offline.
+- **Web talks to server over HTTP.** If the screen loads but no game starts, check that port 3000
+  is running — there is no offline fallback.
 
-- **`pnpm build` roda `tsc` em todos os pacotes**; o web ainda faz `vite build` depois. Erro de tipo no
-  engine derruba o build inteiro, mesmo que você só tenha mexido no web.
+- **`pnpm build` runs `tsc` across all packages**; web also runs `vite build` afterward. An engine
+  type error breaks the entire build, even if you changed only web.
 
-## Testes
+## Tests
 
 ```bash
-pnpm test                              # todos os pacotes
-pnpm --filter @zugzwang/engine test    # o mais importante — lógica pura
-pnpm lint                              # 0 warnings toleradas
+pnpm test                              # all packages
+pnpm --filter @zugzwang/engine test    # the most important — pure logic
+pnpm lint                              # 0 warnings tolerated
 ```
 
-ℹ️ **Node 26 e `localStorage` — resolvido.** O Node >= 26 expõe um `localStorage` nativo experimental
-que só funciona com `--localstorage-file`. Como o ambiente jsdom do Vitest usa o próprio `globalThis`
-como `window`, esse global sombreava o Storage do jsdom: `localStorage` e `window.localStorage` ficavam
-`undefined` nos testes **e** no código de produção que roda sob eles (`App.tsx`, `useSavedGames.ts`).
+ℹ️ **Node 26 and `localStorage` — resolved.** Node >= 26 exposes experimental native `localStorage`
+that works only with `--localstorage-file`. Since Vitest's jsdom environment uses `globalThis` itself
+as `window`, this global shadowed jsdom's Storage: `localStorage` and `window.localStorage` became
+`undefined` in tests **and** in production code running under them (`App.tsx`, `useSavedGames.ts`).
 
-`packages/web/tests/setup.ts` instala um Storage em memória quando o global não está utilizável — no-op
-em Node 22/24. A suíte passa em qualquer versão; **não** é mais preciso trocar de Node.
+`packages/web/tests/setup.ts` installs in-memory Storage when the global is unusable — a no-op on
+Node 22/24. The suite passes on any version; switching Node versions is **no longer** necessary.
 
-## Portas
+## Ports
 
-| Porta | Serviço |
-|---|---|
-| 5173 | web (Vite) |
+| Port | Service          |
+| ---- | ---------------- |
+| 5173 | web (Vite)       |
 | 3000 | server (Express) |
